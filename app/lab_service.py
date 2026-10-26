@@ -132,11 +132,24 @@ class LabService:
         return fixture
 
     def _require_run(self, run_id: str) -> None:
+        """Resolve a demo run, refusing anything that is not one.
+
+        Integration workspaces share the same tables, so without this check a demo
+        route would reach the simulator with an empty fixture and could run a
+        simulated lookup over user supplied data. The refusal is a 404 so it is
+        indistinguishable from an unknown id.
+        """
         try:
-            self.store.run_state(run_id)
+            kind = self.store.run_kind(run_id)
         except ValueError as exc:
             raise LabError(
                 404,
                 "unknown run %r" % (run_id,),
                 "Start a scenario from the home page.",
             ) from exc
+        if kind != "demo":
+            raise LabError(
+                404,
+                "unknown run %r" % (run_id,),
+                "Start a scenario from the home page.",
+            )

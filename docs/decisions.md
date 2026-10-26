@@ -321,3 +321,22 @@ What that means:
 - The explicit `ROLLBACK` is not what saves us. Closing the connection rolls an open
   transaction back on its own, so removing the statement changes nothing observable.
   The rollback test proves the effect, not that this line produces it.
+
+## Integration workspaces share the tables and carry a kind
+
+Chosen over separate integration tables or a second processor.
+Why: admission and ingest already carry the guarantees that matter, so a fixture free
+workspace only needs a payment and a flag. The status view reads the same report the
+demo reads, minus the naive side.
+Cost: product rows carry demo shaped columns (`fixture_text`, the cursor, the action
+log), and every demo route now depends on an explicit kind check to stay out of
+integration data. `runs.kind` is added with an additive migration so an existing
+database keeps its rows as demo runs.
+
+## A workspace and its payment are created in one transaction
+
+Chosen over reusing `create_run` then `add_payment`.
+Why: those each open their own transaction, so a failure between them would leave a
+workspace with no payment, which the service cannot serve and nothing would clean up.
+Cost: one more store method beside the demo path, and the two paths share private row
+writers to avoid drifting.

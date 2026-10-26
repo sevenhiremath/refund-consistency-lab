@@ -23,7 +23,8 @@ SCHEMA = (
     CREATE TABLE IF NOT EXISTS runs (
         run_id TEXT PRIMARY KEY,
         provider TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'demo'
     )
     """,
     """
@@ -241,7 +242,13 @@ class Store:
             conn.execute("BEGIN IMMEDIATE")
             for statement in SCHEMA:
                 conn.execute(statement)
-            conn.execute("PRAGMA user_version = 1")
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(runs)")}
+            if "kind" not in columns:
+                # Additive only: existing rows become demo runs and keep working.
+                conn.execute(
+                    "ALTER TABLE runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'demo'"
+                )
+            conn.execute("PRAGMA user_version = 2")
             conn.execute("COMMIT")
         except BaseException:
             conn.execute("ROLLBACK")
@@ -251,6 +258,43 @@ class Store:
 
     # -- setup -----------------------------------------------------------
 
+    def _insert_run(
+        self, conn: sqlite3.Connection, run_id: str, provider: str, kind: str
+    ) -> None:
+        conn.execute(
+            """
+            INSERT INTO runs (run_id, provider, created_at, kind)
+            VALUES (?, ?, ?, ?)
+            """,
+            (run_id, provider, _now(), kind),
+        )
+
+    def _insert_run_state(self, conn: sqlite3.Connection, run_id: str, **fixture) -> None:
+        conn.execute(
+            """
+            INSERT INTO run_state
+                (run_id, cursor, tick, fixture_name, fixture_sha, fixture_text)
+            VALUES (?, 0, 0, ?, ?, ?)
+            """,
+            (
+                run_id,
+                fixture.get("fixture_name", ""),
+                fixture.get("fixture_sha", ""),
+                fixture.get("fixture_text", ""),
+            ),
+        )
+
+    def _insert_payment(
+        self, conn: sqlite3.Connection, run_id: str, payment: Payment
+    ) -> None:
+        conn.execute(
+            """
+            INSERT INTO payments (run_id, payment_id, captured_paise, currency)
+            VALUES (?, ?, ?, ?)
+            """,
+            (run_id, payment.payment_id, payment.captured_paise, payment.currency),
+        )
+
     def create_run(
         self,
         run_id: str,
@@ -259,30 +303,68 @@ class Store:
         fixture_name: str = "",
         fixture_sha: str = "",
         fixture_text: str = "",
+        kind: str = "demo",
     ) -> None:
         with self._write() as conn:
-            conn.execute(
-                "INSERT INTO runs (run_id, provider, created_at) VALUES (?, ?, ?)",
-                (run_id, provider, _now()),
-            )
-            conn.execute(
-                """
-                INSERT INTO run_state
-                    (run_id, cursor, tick, fixture_name, fixture_sha, fixture_text)
-                VALUES (?, 0, 0, ?, ?, ?)
-                """,
-                (run_id, fixture_name, fixture_sha, fixture_text),
+            self._insert_run(conn, run_id, provider, kind)
+            self._insert_run_state(
+                conn,
+                run_id,
+                fixture_name=fixture_name,
+                fixture_sha=fixture_sha,
+                fixture_text=fixture_text,
             )
 
     def add_payment(self, run_id: str, payment: Payment) -> None:
         with self._write() as conn:
-            conn.execute(
+            self._insert_payment(conn, run_id, payment)
+
+    def create_workspace(
+        self, run_id: str, provider: str, payment: Payment
+    ) -> None:
+        """A fixture free workspace and its payment in one transaction.
+
+        create_run and add_payment each open their own transaction, which is fine for
+        a demo that only ever adds fixture data. An integration workspace must never
+        exist without its payment, so both rows commit together or neither does.
+        """
+        with self._write() as conn:
+            self._insert_run(conn, run_id, provider, "integration")
+            self._insert_run_state(conn, run_id)
+            self._insert_payment(conn, run_id, payment)
+
+    def run_info(self, run_id: str) -> dict:
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT run_id, provider, kind FROM runs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            raise ValueError("unknown run %r" % (run_id,))
+        return dict(row)
+
+    def run_kind(self, run_id: str) -> str:
+        return self.run_info(run_id)["kind"]
+
+    def run_payments(self, run_id: str) -> tuple[Payment, ...]:
+        conn = self._connect()
+        try:
+            rows = conn.execute(
                 """
-                INSERT INTO payments (run_id, payment_id, captured_paise, currency)
-                VALUES (?, ?, ?, ?)
+                SELECT payment_id, captured_paise, currency
+                FROM payments WHERE run_id = ? ORDER BY payment_id
                 """,
-                (run_id, payment.payment_id, payment.captured_paise, payment.currency),
+                (run_id,),
+            ).fetchall()
+            return tuple(
+                Payment(row["payment_id"], row["captured_paise"], row["currency"])
+                for row in rows
             )
+        finally:
+            conn.close()
 
     # -- admission -------------------------------------------------------
 
