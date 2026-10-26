@@ -112,6 +112,44 @@ from a provider retry of one event. The primary key decides, so the check cannot
 Cost: the caller must reuse the attempt id when it retries. A client that invents a
 new id per transport retry looks like a new provider delivery.
 
+## Fixed fixtures before random failures
+
+Chosen over seeded random fault injection for the first simulator.
+Why: a fixture is a claim with a known answer. `duplicate_success` says one event
+arrives three times and the protected total stays 300 rupees. When that fails the
+cause is narrow. Random faults mostly produce cases nobody wrote an expected answer
+for, so a failure says something broke without saying what.
+Cost: fixtures only cover failure modes someone thought of. They miss interleavings
+across refunds, clusters of faults, tick boundaries and any trigger not already in a
+file. A seeded fuzz run needs an invariant checker to judge it and that is later work.
+
+## Provider truth is not delivery
+
+Chosen over deriving deliveries from provider events at run time.
+Why: the protected processor must not be able to read a notification that was never
+sent or one that has not happened yet. Only the delivery list becomes work. Provider
+events exist for the report and for the future lookup path.
+Cost: the fixture repeats the event identity in two lists, so loading rejects a file
+where the two disagree.
+
+## The cursor commits with the delivery
+
+Chosen over advancing the cursor after processing, in its own transaction.
+Why: a failure between the two would either lose a scheduled delivery or apply it
+twice. Sharing the transaction makes a repeated step safe to retry with the same
+expected cursor.
+Cost: a whole run-to-end holds the write lock for the length of the schedule. Fine at
+this size, not a throughput claim.
+
+## Admission writes a pending projection
+
+Chosen over writing projections only when a notification arrives.
+Why: a refund with no notifications is a real state the UI has to show. Without this
+it reads as missing rather than pending.
+Cost: one extra projection pass per admission. It also made the M3 rollback test
+stricter, since the surviving state row is now proof that the failed ingest added
+nothing.
+
 ## Corrections
 
 ### The conflict flip is status level
