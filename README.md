@@ -5,9 +5,10 @@ reordered, missing and conflicting provider events are delivered to a naive proc
 and to a protected one, so the point where their accounting diverges is visible
 instead of theoretical. No real payments, no provider SDK, no card data.
 
-**Status: M2 domain rules.** The refund rules and the naive baseline are implemented
-and tested. There is no persistence, scenario runner or comparison page yet: `/`
-still lists planned scenarios and runs nothing.
+**Status: M3 persistence.** Refund rules, the naive baseline, admission and delivery
+processing are implemented and tested against SQLite. There is no scenario scheduler,
+provider lookup or comparison page yet: `/` still lists planned scenarios and runs
+nothing.
 
 ## Requirements
 
@@ -114,6 +115,29 @@ failed refund keeps consuming capacity.
 the amount on every success notification, and it lets the most recent arrival decide
 the status. It is the obvious first implementation, not scenario-specific sabotage.
 
+## Persistence
+
+`app/store.py` keeps one SQLite file. Seven tables: `runs`, `payments`,
+`refund_intents`, `deliveries`, `findings`, `refund_states` and `naive_states`.
+
+Two guarantees are carried by the database rather than by careful code.
+
+- `PRIMARY KEY (run_id, provider, attempt_id)` makes a transport retry a no-op. The
+  same attempt id returns the recorded outcome and adds no delivery, so the naive
+  side does not count it twice.
+- A partial unique index on `(run_id, provider, event_id)` where `accepted = 1` allows
+  at most one accepted claim per event. A provider retry with a new attempt id is
+  still recorded and still counted by the naive side, which is the bug being shown.
+
+Admission and ingest each run inside one `BEGIN IMMEDIATE` transaction. For ingest
+that transaction covers the delivery row, its findings and both projections, so a
+failure leaves nothing partial and the same request can be retried.
+
+Every delivery attempt stays as a row, including duplicates and conflicting payloads.
+A delivery for a refund that was never admitted creates a finding and no refund.
+Foreign key enforcement is per connection in SQLite, so every connection goes through
+`app/db.py`, which turns it on.
+
 ## Layout
 
 ```
@@ -123,10 +147,11 @@ app/domain/money.py  paise validation and rendering
 app/domain/model.py  payment, intent, observation, delivery, report types
 app/domain/rules.py  admission, evidence reducer, comparison
 app/domain/naive.py  the deliberately naive baseline
+app/store.py         SQLite schema, admission and atomic ingest
 app/main.py          app factory, / and /health
 app/templates/       server-rendered page
 docs/decisions.md    tradeoffs and corrections
-tests/               health, page, database, money, admission and rule tests
+tests/               health, page, database, money, admission, rule and store tests
 ```
 
 ## Design notes
