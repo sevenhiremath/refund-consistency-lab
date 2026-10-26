@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}{{ body.fixture.name }} · Refund Consistency Lab{% endblock %}
+{% block content %}
+  <p class="small"><a href="/">← All scenarios</a></p>
+  <h1>{{ body.fixture.name }}</h1>
+  <p class="muted">{{ body.fixture.notes }}</p>
+
+  <dl class="meta">
+    <div><dt>Provider</dt><dd>{{ body.fixture.provider }}</dd></div>
+    <div><dt>Run</dt><dd><code>{{ run_id }}</code></dd></div>
+    <div><dt>Tick</dt><dd>{{ body.progress.tick }}</dd></div>
+    <div><dt>Deliveries applied</dt><dd>{{ body.progress.cursor }} of {{ body.inputs.scheduled_deliveries }}</dd></div>
+    <div>
+      <dt>State</dt>
+      <dd>
+        {% if finished %}
+          <span class="badge finished">finished</span>
+        {% else %}
+          <span class="badge pending">in progress</span>
+        {% endif %}
+      </dd>
+    </div>
+  </dl>
+
+  <div class="controls">
+    <form method="post" action="/runs/{{ run_id }}/step" data-busy>
+      <input type="hidden" name="expected_cursor" value="{{ body.progress.cursor }}">
+      <button type="submit" data-busy-label="Stepping…" {% if finished %}disabled{% endif %}>Step</button>
+    </form>
+    <form method="post" action="/runs/{{ run_id }}/run" data-busy>
+      <input type="hidden" name="expected_cursor" value="{{ body.progress.cursor }}">
+      <button type="submit" data-busy-label="Running…" {% if finished %}disabled{% endif %}>Run to end</button>
+    </form>
+    <form method="post" action="/runs/{{ run_id }}/replay" data-busy>
+      <button type="submit" data-busy-label="Replaying…">Replay</button>
+    </form>
+    <a href="/runs/{{ run_id }}/evidence">Download evidence</a>
+    <span class="busy-note" data-busy-note hidden>Working…</span>
+  </div>
+
+  <form class="controls" method="post" action="/runs/{{ run_id }}/reconcile" data-busy>
+    <label>
+      Refund
+      <select name="refund_id">
+        {% for row in body.comparison.refunds %}
+          <option value="{{ row.refund_id }}">{{ row.refund_id }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Query tick
+      <input type="number" name="tick" min="0" value="{{ body.progress.tick }}" required>
+    </label>
+    <button type="submit" data-busy-label="Asking…">Reconcile</button>
+    <span class="busy-note" data-busy-note hidden>Asking the provider…</span>
+  </form>
+
+  <h2>Totals</h2>
+  <div class="stats" data-testid="stats">
+    <div><span class="label">Captured</span><span class="value">{{ body.inputs.payment.captured_paise | paise }}</span></div>
+    <div><span class="label">Admitted</span><span class="value">{{ body.comparison.admitted_paise | paise }}</span></div>
+    <div><span class="label">Protected confirmed</span><span class="value">{{ body.comparison.protected_confirmed_paise | paise }}</span></div>
+    <div><span class="label">Under review</span><span class="value">{{ body.comparison.protected_review_paise | paise }}</span></div>
+    <div><span class="label">Naive total</span><span class="value">{{ body.comparison.naive_total_paise | paise }}</span></div>
+  </div>
+
+  <h2>Comparison</h2>
+  <div class="scroll">
+    <table data-testid="comparison">
+      <thead>
+        <tr>
+          <th>Refund</th>
+          <th class="num">Amount</th>
+          <th>Protected</th>
+          <th class="num">Confirmed</th>
+          <th class="num">Review</th>
+          <th>Naive</th>
+          <th class="num">Naive total</th>
+          <th>Reasons</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in body.comparison.refunds %}
+          <tr>
+            <td>{{ row.refund_id }}</td>
+            <td class="num">{{ row.amount_paise | paise }}</td>
+            <td><span class="badge {{ row.protected_status }}">{{ row.protected_status }}</span></td>
+            <td class="num">{{ row.protected_confirmed_paise | paise }}</td>
+            <td class="num">{{ row.protected_review_paise | paise }}</td>
+            <td>{{ row.naive_status }}</td>
+            <td class="num">{{ row.naive_total_paise | paise }}</td>
+            <td>{% if row.reasons %}{{ row.reasons | join(", ") }}{% else %}<span class="muted">—</span>{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Actions</h2>
+  {% if body.actions %}
+    <div class="scroll">
+      <table data-testid="actions">
+        <thead>
+          <tr><th class="num">#</th><th>Kind</th><th class="num">Tick</th><th>Subject</th><th>Event</th><th>Outcome</th></tr>
+        </thead>
+        <tbody>
+          {% for action in body.actions %}
+            <tr>
+              <td class="num">{{ action.seq }}</td>
+              <td>{{ action.kind }}</td>
+              <td class="num">{{ action.tick }}</td>
+              <td>{% if action.kind == "delivery" %}<code>{{ action.subject }}</code>{% else %}{{ action.subject }}{% endif %}</td>
+              <td>{{ action.event_id or "—" }}</td>
+              <td>{{ action.outcome }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="muted">No actions yet. Step the run or reconcile.</p>
+  {% endif %}
+
+  <h2>Evidence</h2>
+  <p><strong>Findings</strong></p>
+  {% if body.evidence.findings %}
+    <ul class="findings">
+      {% for key in body.evidence.findings %}<li><code>{{ key }}</code></li>{% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">No findings.</p>
+  {% endif %}
+
+  {% if body.evidence.unmatched %}
+    <p><strong>Unmatched deliveries</strong></p>
+    <ul class="findings">
+      {% for item in body.evidence.unmatched %}
+        <li><code>{{ item.event_id }}</code> for {{ item.refund_id }} ({{ item.status }}, {{ item.amount_paise | paise }})</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  <p><strong>Provider events never delivered</strong></p>
+  {% if body.provider.dropped %}
+    <p><code>{{ body.provider.dropped | join(", ") }}</code></p>
+    <p class="muted small">
+      The provider knows these events. Neither processor can see them. Only a
+      reconcile action can bring the outcome across.
+    </p>
+  {% else %}
+    <p class="muted">None. Every provider event was delivered.</p>
+  {% endif %}
+
+  <p class="muted small" style="margin-top:1.5rem">
+    Fixture <code>{{ body.fixture.sha256[:12] }}</code> · report digest <code>{{ digest[:16] }}</code>
+  </p>
+{% endblock %}

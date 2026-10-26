@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Refund Consistency Lab{% endblock %}</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --line: #d5d7db;
+      --muted: #6b7280;
+      --bg: #ffffff;
+      --fg: #111418;
+      --accent: #0b5fff;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --line: #34373d; --muted: #9aa0aa; --bg: #16181c; --fg: #e8eaee; --accent: #7aa2ff; }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    a { color: var(--accent); }
+    header { border-bottom: 1px solid var(--line); padding: .9rem 1.25rem; }
+    header a { font-weight: 600; text-decoration: none; color: var(--fg); }
+    main { max-width: 72rem; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.5rem; margin: .2rem 0 .4rem; }
+    h2 { font-size: 1.05rem; margin: 1.7rem 0 .5rem; }
+    p { margin: .4rem 0; }
+    .muted { color: var(--muted); }
+    .small { font-size: .85rem; }
+    code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .85em; }
+    table { border-collapse: collapse; width: 100%; margin: .4rem 0 0; }
+    th, td { text-align: left; padding: .45rem .5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .scroll { overflow-x: auto; }
+    .badge { display: inline-block; padding: .05rem .45rem; border-radius: 999px; font-size: .75rem; border: 1px solid var(--line); }
+    .badge.succeeded { background: #e6f4ea; color: #146c2e; border-color: #bfe0c9; }
+    .badge.review { background: #fef7e0; color: #8a6100; border-color: #f0dca8; }
+    .badge.failed { background: #fce8e6; color: #a50e0e; border-color: #f2c4c0; }
+    .badge.pending { background: #eef1f6; color: #3c4657; border-color: #d7dde7; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .75rem; margin: 1rem 0; }
+    .stats div { border: 1px solid var(--line); border-radius: .5rem; padding: .55rem .7rem; }
+    .stats .label { display: block; font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    .stats .value { display: block; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.25rem; margin: .8rem 0 0; }
+    .meta dt { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+    .meta dd { margin: 0; font-variant-numeric: tabular-nums; }
+    .controls { display: flex; flex-wrap: wrap; gap: .8rem; align-items: flex-end; margin: 1.1rem 0; padding: .9rem; border: 1px solid var(--line); border-radius: .5rem; }
+    .controls form { display: flex; gap: .45rem; align-items: flex-end; margin: 0; }
+    .controls label { display: flex; flex-direction: column; font-size: .72rem; color: var(--muted); gap: .15rem; text-transform: uppercase; letter-spacing: .04em; }
+    button {
+      font: inherit; padding: .35rem .8rem; border-radius: .35rem;
+      border: 1px solid var(--line); background: transparent; color: inherit; cursor: pointer;
+    }
+    button:hover:not(:disabled) { border-color: var(--accent); }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    input, select {
+      font: inherit; padding: .3rem .4rem; border: 1px solid var(--line);
+      border-radius: .35rem; background: transparent; color: inherit;
+    }
+    input[type="number"] { width: 6rem; }
+    .card { display: flex; justify-content: space-between; gap: 1rem; align-items: center; border: 1px solid var(--line); border-radius: .5rem; padding: .8rem 1rem; margin: .6rem 0; }
+    .card h2 { margin: 0 0 .15rem; font-size: 1rem; }
+    .card p { margin: 0; }
+    .findings { padding-left: 1.1rem; }
+    [aria-busy="true"] { opacity: .6; }
+    .busy-note { font-size: .8rem; color: var(--muted); }
+    @media (max-width: 640px) { .card { flex-direction: column; align-items: flex-start; } }
+  </style>
+</head>
+<body>
+  <header><a href="/">Refund Consistency Lab</a></header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <script>
+    document.addEventListener("submit", function (event) {
+      var form = event.target;
+      if (!form.matches || !form.matches("form[data-busy]")) return;
+      form.setAttribute("aria-busy", "true");
+      Array.prototype.forEach.call(form.querySelectorAll("button"), function (button) {
+        button.disabled = true;
+        if (button.dataset.busyLabel) button.textContent = button.dataset.busyLabel;
+      });
+      var note = form.querySelector("[data-busy-note]");
+      if (note) note.hidden = false;
+    });
+  </script>
+</body>
+</html>

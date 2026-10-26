@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · Refund Consistency Lab{% endblock %}
+{% block content %}
+  <h1>{{ title }}</h1>
+  <p>{{ message }}</p>
+  {% if hint %}<p class="muted">{{ hint }}</p>{% endif %}
+  <p><a href="/">Back to scenarios</a></p>
+  <p class="muted small">Status {{ status }}</p>
+{% endblock %}

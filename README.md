@@ -5,9 +5,8 @@ reordered, missing and conflicting provider events are delivered to a naive proc
 and to a protected one, so the point where their accounting diverges is visible
 instead of theoretical. No real payments, no provider SDK, no card data.
 
-**Status: M5 reconciliation.** Refund rules, the naive baseline, persistence, the
-deterministic fixture runner and provider-status lookup are implemented and tested.
-The comparison page is not built: `/` still lists planned scenarios and runs nothing.
+**Status: M6 page and API.** The lab is usable end to end: pick a scenario, step or
+run it, compare both processors, reconcile, replay and download the evidence.
 
 ## Requirements
 
@@ -189,6 +188,52 @@ A lookup never creates a refund and never changes provider truth. Repeating the 
 refund and tick returns the recorded outcome and adds no evidence. The naive baseline
 is webhook-only, so lookups do not reach it.
 
+## Page and API
+
+`/` lists the twelve scenarios. A run page shows both processors side by side and
+offers Step, Run to end, Reconcile, Replay and Download evidence.
+
+Every number on the page comes from a `RunReport` built in `app/lab_service.py`.
+Templates format values, they never calculate them, so the page and the evidence
+download cannot disagree.
+
+The JSON API mirrors the page:
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/scenarios` | fixture list |
+| POST | `/api/runs` | start a run |
+| GET | `/api/runs/{id}` | full report |
+| POST | `/api/runs/{id}/step` | apply one delivery, needs `expected_cursor` |
+| POST | `/api/runs/{id}/run` | apply the rest |
+| POST | `/api/runs/{id}/reconcile` | ask the provider about a refund |
+| POST | `/api/runs/{id}/replay` | replay into a new run |
+| GET | `/api/runs/{id}/evidence` | report download |
+
+Errors return an HTML page for routes and JSON for `/api`, with the same status code.
+Unknown runs and scenarios are 404, a stale cursor is 409, an invalid lookup is 400.
+
+The frontend is server-rendered HTML with a small amount of JavaScript that disables
+a submitted button and shows a busy note. A separate frontend framework would give
+partial updates and richer local state, at the cost of a second toolchain, a build
+step, and a second place where a refund number could be computed. This page is a
+table and a few buttons, so the reload is cheap and keeping every number in the
+backend is worth more.
+
+## Browser check
+
+Development only, not part of the test suite:
+
+```
+python -m uvicorn app.main:app --port 8010
+python tools/browser_check.py
+```
+
+It drives a local browser through the picker, a stepped run, duplicates, a lookup
+recovery, an unresolved conflict, the loading state, the evidence download and both
+error pages. Set `LAB_BROWSER_CHANNEL` to `chrome` or leave it empty for bundled
+Chromium.
+
 ## Layout
 
 ```
@@ -203,9 +248,13 @@ app/sim/fixture.py   fixture parsing and validation
 app/sim/provider.py  read-only provider view for lookups
 app/sim/runner.py    run creation, stepping, reconciliation, replay and report
 app/sim/cli.py       headless entry point
-app/main.py          app factory, / and /health
+app/lab_service.py   the only place routes get lab state from
+app/pages.py         HTML routes
+app/api.py           JSON routes
+app/main.py          app factory, /health, error pages
 app/templates/       server-rendered page
 fixtures/            twelve deterministic scenarios
+tools/browser_check.py  development-only browser walkthrough
 docs/decisions.md    tradeoffs and corrections
 tests/               health, page, database, money, admission, rule, store, sim and reconcile tests
 ```
