@@ -54,21 +54,31 @@ survive a container restart.
 
 ## Hosting
 
-The target is a single Docker image on a card-free container host. Checked
-against Hugging Face Spaces, which is the current candidate:
+The target is one app instance with SQLite in a single container.
 
-- **Disk is ephemeral.** The Space filesystem is discarded on restart or rebuild.
-  Runs must therefore be self-contained and short-lived; a restart loses in-flight
-  demo runs, not the product. Persistent runs need a Storage Bucket mounted as a
-  volume, which is a separate decision and not required for the lab.
-- **WAL on a mounted bucket is unverified.** SQLite needs shared memory for WAL,
-  and network-backed volumes can fall back to a rollback journal. That is why
-  `/health` distinguishes `degraded` from `error` instead of failing the whole
-  site when `journal_mode` is not `wal`.
-- **Port and user.** The platform exposes one port (default 7860) and runs the
-  container as UID 1000; both are already matched.
-- **Cold start.** Free tiers sleep when idle, so the first request after a quiet
-  period is slow. This is a demo-latency fact, not a correctness one.
+**Public deployment is currently blocked.** Hugging Face rejects Docker Space creation
+for a free account with `402 Payment Required`, because Gradio and Docker Spaces on
+`cpu-basic` need a PRO plan. Static Spaces are free but cannot run this app. No second
+provider was tried.
+
+The image itself is self contained and was verified locally:
+
+- **One instance, one SQLite file.** No queue, no worker, no external database.
+- **Data does not survive a restart.** The container filesystem is discarded on
+  restart or rebuild, so runs created before a restart are gone. Every run is short
+  lived and starts from a bundled fixture, so this affects saved runs, not the demo.
+- **WAL on a mounted network volume is unverified.** SQLite needs shared memory for
+  WAL, and network-backed volumes can fall back to a rollback journal. That is why
+  `/health` distinguishes `degraded` from `error` instead of failing the whole site
+  when `journal_mode` is not `wal`.
+- **Port and user.** The container listens on 7860 and runs as UID 1000, which is what
+  container space hosts expect.
+- **No browser tooling in the image.** Playwright is a dev extra and `tools/` is not
+  copied, so the runtime has no test dependency.
+
+Inputs are bounded by construction: the only public inputs are a scenario name that
+must exist in the bundled list, a run id, an integer cursor and an integer tick.
+There is no free text and no upload.
 
 ## Domain rules
 
