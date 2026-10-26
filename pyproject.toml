@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "refund-consistency-lab"
+version = "0.1.0"
+description = "A fault-injection lab for refund notification processing."
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.30,<1",
+    "jinja2>=3.1,<4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<9",
+    "httpx>=0.27,<1",
+]
+
+[tool.setuptools]
+packages = ["app"]
+
+[tool.setuptools.package-data]
+app = ["templates/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
