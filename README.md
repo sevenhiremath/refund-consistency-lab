@@ -299,6 +299,26 @@ Registering the same refund twice is a safe retry and answers 200 with
 There is no lookup route. Provider lookup stays inside the demonstration until there
 is a real adapter, and the API never answers from fixture truth.
 
+### Example client
+
+`examples/integration_client.py` is a second application using the service. It imports
+only `httpx`, `os` and `sys`, never the lab itself. Its notifications are synthetic,
+but they travel through the real `/v1` API, so the rules, the cap, duplicate handling
+and stored evidence are the ones the service actually applies.
+
+```
+python -m pip install httpx
+set LAB_BASE_URL=http://127.0.0.1:8031
+set INTEGRATION_API_KEY=your-key
+python examples/integration_client.py
+```
+
+The key is read from the environment and sent only in the `Authorization` header. It
+is never printed, never placed in a URL, and never echoed from an error. The client
+walks one workspace through a captured payment of 100000 paise, a 30000 paise refund,
+the same success event delivered three times under three attempt ids, an identical
+retry, and a later pending event, printing the confirmed amount after each step.
+
 The demo pages and the demonstration API cannot reach integration data. A demo route
 pointed at an integration workspace answers 404, so there is no path to user data
 without the key, and no path to a simulated lookup over it.
