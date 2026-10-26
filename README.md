@@ -54,14 +54,12 @@ survive a container restart.
 
 ## Hosting
 
-Target is one Render web service running this Docker image on the free plan, with
-SQLite inside the container. No managed database, no second instance.
+Live at **https://refund-consistency-lab.onrender.com**. One Render web service running
+this Docker image on the free plan, with SQLite inside the container. No managed
+database, no second instance. Pushing to `main` redeploys it, because `render.yaml`
+sets `autoDeploy`.
 
-**Deployment is blocked on account access.** There is no Render API key or linked
-service on this machine, so the service could not be created. The exact next step is
-below.
-
-Settings, also encoded in `render.yaml` as a Blueprint:
+Settings, encoded in `render.yaml` as a Blueprint:
 
 - runtime Docker, Dockerfile at the repo root
 - one instance, free plan
@@ -71,14 +69,15 @@ Settings, also encoded in `render.yaml` as a Blueprint:
 - the commit comes from `RENDER_GIT_COMMIT`, which Render injects, so `/health`
   reports the commit Render actually built
 
-### Next step
+### What has been checked publicly
 
-Either of these, then the service exists:
+Independent smoke checks against the public URL have covered the health endpoint and
+its reported commit, the scenario listing, duplicate processing and missing-message
+recovery.
 
-1. In the Render dashboard choose New, then Blueprint, and select this repository.
-   Render reads `render.yaml` and creates the service with the settings above.
-2. Create a Render API key and make it available as `RENDER_API_KEY`, then the service
-   can be created from the command line.
+That is not a full public release audit. Evidence download, the error pages, the
+lookup-tick rule, run isolation and behaviour under load were verified locally rather
+than against the public instance.
 
 ### What storage does and does not survive
 
@@ -106,9 +105,11 @@ to wake, and any run created before it must be started again.
 - **No browser tooling in the image.** Playwright is a dev extra and `tools/` is not
   copied, so the runtime has no test dependency.
 
-Inputs are bounded by construction: the only public inputs are a scenario name that
-must exist in the bundled list, a run id, an integer cursor and an integer tick.
-There is no free text and no upload.
+The **shape** of public input is bounded: a scenario name that must exist in the
+bundled list, a run id, an integer cursor and an integer tick, with no free text and no
+upload. The **number** of runs is not bounded. Any visitor can create runs indefinitely,
+at roughly 2 KB of database each, and there is no rate limit or eviction. A single
+public instance would need one before it faced real traffic; it has none today.
 
 ## Domain rules
 
@@ -201,8 +202,19 @@ notifications were actually delivered. Twelve fixtures live in `fixtures/`.
 
 The report carries the fixture hash, the input payment and refunds, the dropped
 provider events, every action with its tick and outcome, the final comparison and the
-evidence. The digest covers logical timing and action order. It excludes the run id
-and wall-clock timestamps only.
+evidence. The engine block names the version and the resolved source commit, so a
+digest is only comparable within one build. When the commit cannot be resolved it is
+marked `unknown` and `commit_known` is false, and a comparison across builds is not
+established.
+
+The digest covers logical timing and action order. It excludes the run id and
+wall-clock timestamps only.
+
+Every bundled fixture has exactly one payment. The rules and the store can hold more
+than one payment in a run, but a report is built per payment while evidence for the
+other payments is still passed in, so a second payment would appear partly as
+unmatched evidence. That is a known limit, not a supported feature, and the API only
+creates single-payment runs.
 
 ```
 python -m app.sim fixtures/duplicate_success.json
@@ -212,6 +224,15 @@ python -m app.sim fixtures/duplicate_success.json
 
 `runner.reconcile(run_id, refund_id, at_tick)` asks the simulated provider about one
 refund at a logical tick. The tick defaults to the run clock and cannot move backwards.
+
+A lookup also cannot move the clock past a scheduled delivery that has not been applied
+yet. Example: a fixture has deliveries at tick 2 and tick 3, and the run is at tick 0
+with none applied. A lookup at tick 5 is refused, because the clock would jump past
+tick 2 and applying tick 2 would then look like going backwards, leaving the run unable
+to advance. A lookup at tick 2 or 3 is allowed, and once nothing is left to deliver any
+later tick works. A refused lookup writes nothing: no observation, action, finding or
+clock change. The page and the API both answer with a 400 that names the next delivery
+tick.
 
 The answer goes through the same ingest path as a webhook and is tagged `lookup`, so
 the rules decide what it means.
@@ -251,7 +272,16 @@ The JSON API mirrors the page:
 | GET | `/api/runs/{id}/evidence` | report download |
 
 Errors return an HTML page for routes and JSON for `/api`, with the same status code.
-Unknown runs and scenarios are 404, a stale cursor is 409, an invalid lookup is 400.
+Unknown runs and scenarios are 404, a stale cursor is 409, an invalid lookup including
+one past the next delivery is 400.
+
+A step response carries an `outcome`. Repeating a delivery attempt with identical
+content returns the recorded outcome with `applied: false`. Reusing an attempt id with
+different content returns `attempt_conflict`: the original row is untouched, neither
+projection moves, and the attempted payload is kept as finding evidence. That is a 200
+rather than a 409, matching how a reused event id with a different payload is already
+handled. A 409 is reserved for a cursor conflict, where retrying with fresh state is
+the right advice.
 
 The frontend is server-rendered HTML with a small amount of JavaScript that disables
 a submitted button and shows a busy note. A separate frontend framework would give

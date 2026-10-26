@@ -207,6 +207,41 @@ Why: otherwise a typo in a fixture looks exactly like an intentional contradicti
 Cost: a deliberate conflict needs an extra flag and a payload, so the conflict fixture
 is slightly more verbose than the others.
 
+## A lookup cannot overtake a pending delivery
+
+Chosen over letting the lookup move the clock freely.
+Why: the run clock only moves forward and each delivery is checked against it. If a
+lookup at tick 5 landed while the delivery at tick 2 was still unapplied, applying tick
+2 would fail the ordering check forever and the run could never advance. Refusing the
+query keeps one ordering rule instead of a special case.
+Cost: a lookup cannot ask about a time after the next delivery until that delivery is
+applied. A tick equal to the next delivery is allowed, since level is not backwards,
+and once nothing is left to deliver any later tick works.
+
+## A reused attempt id is compared before it is trusted
+
+Chosen over trusting the attempt id alone.
+Why: the attempt id is what separates our own transport retry from a new provider
+delivery, so reusing it with different content is either a client bug or a fabricated
+delivery. Both matter. Treating it as an identical retry would drop the claim with no
+trace.
+Cost: one extra claim comparison on a path that is normally a cheap no-op. The
+conflicting claim is kept in the finding detail rather than as a delivery row, so it
+cannot reach either projection and no total moves.
+
+The response is a 200 with an `attempt_conflict` outcome, not a 409, because a reused
+event id with a different payload is already recorded rather than rejected. 409 stays
+for a cursor conflict, where the caller can retry against fresh state.
+
+## The digest carries the build
+
+Chosen over hashing a hardcoded version string.
+Why: the docs promise a digest is comparable within one engine, and a constant
+version could not tell two builds apart. A matching digest across changed code would
+read as proof of determinism when it is not.
+Cost: a digest is only comparable within one commit. Anything that changes the commit
+changes every digest, which is intended but means stored digests age quickly.
+
 ## Corrections
 
 ### The conflict flip is status level
@@ -244,3 +279,25 @@ deliveries that makes two mistakes only: it adds on every success notification a
 takes the last arriving status. It never writes to a database. Auto-commit still
 matters for the ingest layer, where a write outside a transaction is a real defect,
 but nothing in the current code relies on it and the torn write case is not built.
+
+## What the mutation checks actually caught
+
+Three temporary mutations were applied in a separate git worktree and the full suite
+was run against each. Results are what the tests detected, not what we hoped.
+
+| Mutation | Detected | By |
+|---|---|---|
+| `BEGIN IMMEDIATE` changed to `BEGIN` | yes | both concurrency tests: two 600 requests on 1000, and two threads delivering one event |
+| partial unique index made non-unique | partly | the direct constraint test only; both concurrency tests still passed |
+| explicit `ROLLBACK` removed | no | nothing failed |
+
+What that means:
+
+- The write lock is load bearing and tested. Without it both concurrency invariants
+  break.
+- The unique index is a real backstop, proven by a direct insert test, but the
+  concurrency tests do not depend on it because the lock serializes writers first.
+  Defence in depth, with only the outer layer exercised by the race tests.
+- The explicit `ROLLBACK` is not what saves us. Closing the connection rolls an open
+  transaction back on its own, so removing the statement changes nothing observable.
+  The rollback test proves the effect, not that this line produces it.
