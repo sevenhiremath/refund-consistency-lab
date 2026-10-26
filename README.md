@@ -5,10 +5,9 @@ reordered, missing and conflicting provider events are delivered to a naive proc
 and to a protected one, so the point where their accounting diverges is visible
 instead of theoretical. No real payments, no provider SDK, no card data.
 
-**Status: M3 persistence.** Refund rules, the naive baseline, admission and delivery
-processing are implemented and tested against SQLite. There is no scenario scheduler,
-provider lookup or comparison page yet: `/` still lists planned scenarios and runs
-nothing.
+**Status: M4 simulator.** Refund rules, the naive baseline, persistence and a
+deterministic fixture runner are implemented and tested. Provider lookup and the
+comparison page are not built: `/` still lists planned scenarios and runs nothing.
 
 ## Requirements
 
@@ -138,6 +137,35 @@ A delivery for a refund that was never admitted creates a finding and no refund.
 Foreign key enforcement is per connection in SQLite, so every connection goes through
 `app/db.py`, which turns it on.
 
+An admitted refund gets a state row immediately, so a refund with no notifications
+reads as pending rather than missing.
+
+## Simulator
+
+A fixture declares a payment, its refunds, what the provider knows, and which
+notifications were actually delivered. Seven fixtures live in `fixtures/`.
+
+- `events` is provider truth. `deliveries` is what was sent. Only deliveries become
+  work for the processors, so a dropped event has no path into them. A fixture that
+  says an event was delivered but schedules no delivery, or the reverse, is rejected.
+- Ticks are logical. `run_to_end` applies the whole schedule without waiting.
+- `step(run_id, expected_cursor)` applies one delivery. Repeating the same expected
+  cursor returns the recorded result and changes nothing. A cursor ahead of the run is
+  refused.
+- The cursor advances in the same transaction as the delivery it consumed, so a failed
+  step leaves the schedule where it was.
+- `replay(run_id)` starts a new run from the stored fixture text. The run id changes,
+  the digest does not.
+
+The report carries the fixture hash, the input payment and refunds, the dropped
+provider events, every step outcome, the final comparison and the evidence. Its
+digest excludes the run id and timestamps, so two runs of the same fixture and
+actions compare equal.
+
+```
+python -m app.sim fixtures/duplicate_success.json
+```
+
 ## Layout
 
 ```
@@ -148,10 +176,14 @@ app/domain/model.py  payment, intent, observation, delivery, report types
 app/domain/rules.py  admission, evidence reducer, comparison
 app/domain/naive.py  the deliberately naive baseline
 app/store.py         SQLite schema, admission and atomic ingest
+app/sim/fixture.py   fixture parsing and validation
+app/sim/runner.py    run creation, stepping, replay and report
+app/sim/cli.py       headless entry point
 app/main.py          app factory, / and /health
 app/templates/       server-rendered page
+fixtures/            seven deterministic scenarios
 docs/decisions.md    tradeoffs and corrections
-tests/               health, page, database, money, admission, rule and store tests
+tests/               health, page, database, money, admission, rule, store and sim tests
 ```
 
 ## Design notes

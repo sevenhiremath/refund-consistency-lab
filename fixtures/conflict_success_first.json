@@ -1,0 +1,17 @@
+{
+  "fixture": "conflict_success_first",
+  "version": 1,
+  "provider": "psp_a",
+  "notes": "Success arrives first, then a failure for the same refund.",
+  "payment": {"payment_id": "pay_A", "captured_paise": 100000},
+  "refunds": [{"refund_id": "R1", "amount_paise": 30000}],
+  "events": [
+    {"event_id": "E8", "refund_id": "R1", "status": "succeeded", "amount_paise": 30000, "at_tick": 1, "delivered": true},
+    {"event_id": "E9", "refund_id": "R1", "status": "failed", "amount_paise": 30000, "at_tick": 2, "delivered": true}
+  ],
+  "deliveries": [
+    {"at_tick": 2, "attempt_id": "a1", "event_id": "E8"},
+    {"at_tick": 3, "attempt_id": "a2", "event_id": "E9"}
+  ],
+  "end_tick": 4
+}

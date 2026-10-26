@@ -1,0 +1,17 @@
+{
+  "fixture": "pending_after_success",
+  "version": 1,
+  "provider": "psp_a",
+  "notes": "A stale pending notification arrives after the success.",
+  "payment": {"payment_id": "pay_A", "captured_paise": 100000},
+  "refunds": [{"refund_id": "R1", "amount_paise": 30000}],
+  "events": [
+    {"event_id": "E8", "refund_id": "R1", "status": "succeeded", "amount_paise": 30000, "at_tick": 1, "delivered": true},
+    {"event_id": "E7", "refund_id": "R1", "status": "pending", "amount_paise": 30000, "at_tick": 2, "delivered": true}
+  ],
+  "deliveries": [
+    {"at_tick": 2, "attempt_id": "a1", "event_id": "E8"},
+    {"at_tick": 3, "attempt_id": "a2", "event_id": "E7"}
+  ],
+  "end_tick": 4
+}

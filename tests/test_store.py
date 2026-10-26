@@ -268,8 +268,12 @@ def test_failure_between_delivery_and_projection_rolls_back(store, monkeypatch):
     with pytest.raises(RuntimeError):
         store.ingest(RUN, PROVIDER, delivery("a1", "E8", "R1", "succeeded"))
 
-    # Nothing partial survived: no delivery row and no projection row.
-    assert counts(store.db_path) == (0, 0)
+    # No delivery survived and the refund is still pending. The one state row comes
+    # from admission, not from the failed ingest.
+    assert counts(store.db_path) == (0, 1)
+    pending = store.refund_states(RUN)["R1"]
+    assert pending["status"] == "pending"
+    assert pending["confirmed_paise"] == 0
 
     monkeypatch.undo()
     result = store.ingest(RUN, PROVIDER, delivery("a1", "E8", "R1", "succeeded"))

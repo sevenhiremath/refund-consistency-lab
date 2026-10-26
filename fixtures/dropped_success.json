@@ -1,0 +1,13 @@
+{
+  "fixture": "dropped_success",
+  "version": 1,
+  "provider": "psp_a",
+  "notes": "The provider succeeded but the notification was never sent. Without lookup the refund stays pending.",
+  "payment": {"payment_id": "pay_A", "captured_paise": 100000},
+  "refunds": [{"refund_id": "R1", "amount_paise": 30000}],
+  "events": [
+    {"event_id": "E9", "refund_id": "R1", "status": "succeeded", "amount_paise": 30000, "at_tick": 2, "delivered": false}
+  ],
+  "deliveries": [],
+  "end_tick": 5
+}

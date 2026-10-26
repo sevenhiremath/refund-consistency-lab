@@ -109,6 +109,31 @@ SCHEMA = (
         FOREIGN KEY (run_id, refund_id) REFERENCES refund_intents (run_id, refund_id)
     )
     """,
+    # Scheduler bookkeeping. The cursor advances in the same transaction as the
+    # delivery it consumed, so a failed step does not eat a scheduled delivery.
+    """
+    CREATE TABLE IF NOT EXISTS run_state (
+        run_id TEXT PRIMARY KEY,
+        cursor INTEGER NOT NULL DEFAULT 0,
+        tick INTEGER NOT NULL DEFAULT 0,
+        fixture_name TEXT NOT NULL DEFAULT '',
+        fixture_sha TEXT NOT NULL DEFAULT '',
+        fixture_text TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY (run_id) REFERENCES runs (run_id)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS steps (
+        run_id TEXT NOT NULL,
+        cursor INTEGER NOT NULL,
+        tick INTEGER NOT NULL,
+        attempt_id TEXT,
+        event_id TEXT,
+        outcome TEXT NOT NULL,
+        PRIMARY KEY (run_id, cursor),
+        FOREIGN KEY (run_id) REFERENCES runs (run_id)
+    )
+    """,
 )
 
 UPSERT_REFUND_STATE = """
@@ -135,6 +160,21 @@ class IngestResult:
     event_id: str
     outcome: str
     recorded: bool
+
+
+class StepConflict(Exception):
+    """The caller's expected cursor is ahead of the stored cursor."""
+
+
+@dataclass(frozen=True)
+class StepOutcome:
+    cursor: int
+    tick: int
+    attempt_id: str | None
+    event_id: str | None
+    outcome: str
+    applied: bool
+    next_cursor: int
 
 
 def _now() -> str:
@@ -187,11 +227,27 @@ class Store:
 
     # -- setup -----------------------------------------------------------
 
-    def create_run(self, run_id: str, provider: str) -> None:
+    def create_run(
+        self,
+        run_id: str,
+        provider: str,
+        *,
+        fixture_name: str = "",
+        fixture_sha: str = "",
+        fixture_text: str = "",
+    ) -> None:
         with self._write() as conn:
             conn.execute(
                 "INSERT INTO runs (run_id, provider, created_at) VALUES (?, ?, ?)",
                 (run_id, provider, _now()),
+            )
+            conn.execute(
+                """
+                INSERT INTO run_state
+                    (run_id, cursor, tick, fixture_name, fixture_sha, fixture_text)
+                VALUES (?, 0, 0, ?, ?, ?)
+                """,
+                (run_id, fixture_name, fixture_sha, fixture_text),
             )
 
     def add_payment(self, run_id: str, payment: Payment) -> None:
@@ -240,6 +296,10 @@ class Store:
                         refund.currency,
                     ),
                 )
+                # An admitted refund has a result from the moment it exists, so a
+                # refund with no notifications still reads as pending rather than
+                # missing.
+                self._apply_projections(conn, run_id)
             return result
 
     # -- delivery processing ---------------------------------------------
@@ -437,6 +497,153 @@ class Store:
                         row.naive_total_paise,
                     ),
                 )
+
+    # -- scheduled steps ------------------------------------------------
+
+    def apply_step(
+        self,
+        run_id: str,
+        provider: str,
+        expected_cursor: int,
+        schedule: Sequence[tuple[int, Delivery]],
+    ) -> StepOutcome:
+        """Apply exactly one scheduled delivery.
+
+        A repeat of an already applied step returns the recorded outcome and changes
+        nothing. The cursor and the delivery it consumed commit together, so a
+        failure leaves the schedule where it was.
+        """
+        with self._write() as conn:
+            cursor = self._cursor(conn, run_id)
+            if expected_cursor > cursor:
+                raise StepConflict(
+                    "expected cursor %d is ahead of the run at %d"
+                    % (expected_cursor, cursor)
+                )
+            if expected_cursor < cursor:
+                row = conn.execute(
+                    "SELECT * FROM steps WHERE run_id = ? AND cursor = ?",
+                    (run_id, expected_cursor),
+                ).fetchone()
+                if row is None:
+                    raise StepConflict("no recorded step at cursor %d" % expected_cursor)
+                return StepOutcome(
+                    cursor=row["cursor"],
+                    tick=row["tick"],
+                    attempt_id=row["attempt_id"],
+                    event_id=row["event_id"],
+                    outcome=row["outcome"],
+                    applied=False,
+                    next_cursor=cursor,
+                )
+            if cursor >= len(schedule):
+                state = conn.execute(
+                    "SELECT tick FROM run_state WHERE run_id = ?", (run_id,)
+                ).fetchone()
+                return StepOutcome(cursor, state["tick"], None, None, "finished", False, cursor)
+
+            step = self._apply_one(conn, run_id, provider, cursor, schedule)
+            return StepOutcome(
+                cursor=step["cursor"],
+                tick=step["tick"],
+                attempt_id=step["attempt_id"],
+                event_id=step["event_id"],
+                outcome=step["outcome"],
+                applied=True,
+                next_cursor=cursor + 1,
+            )
+
+    def apply_remaining(
+        self,
+        run_id: str,
+        provider: str,
+        expected_cursor: int,
+        schedule: Sequence[tuple[int, Delivery]],
+    ) -> int:
+        """Apply every remaining delivery in one transaction. Returns the cursor."""
+        with self._write() as conn:
+            cursor = self._cursor(conn, run_id)
+            if expected_cursor > cursor:
+                raise StepConflict(
+                    "expected cursor %d is ahead of the run at %d"
+                    % (expected_cursor, cursor)
+                )
+            if expected_cursor < cursor:
+                return cursor
+            while cursor < len(schedule):
+                self._apply_one(conn, run_id, provider, cursor, schedule)
+                cursor += 1
+            return cursor
+
+    def _cursor(self, conn: sqlite3.Connection, run_id: str) -> int:
+        row = conn.execute(
+            "SELECT cursor FROM run_state WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        if row is None:
+            raise ValueError("unknown run %r" % (run_id,))
+        return row["cursor"]
+
+    def _apply_one(
+        self,
+        conn: sqlite3.Connection,
+        run_id: str,
+        provider: str,
+        index: int,
+        schedule: Sequence[tuple[int, Delivery]],
+    ) -> dict:
+        tick, delivery = schedule[index]
+        result = self._ingest(conn, run_id, provider, delivery)
+        conn.execute(
+            """
+            INSERT INTO steps (run_id, cursor, tick, attempt_id, event_id, outcome)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                index,
+                tick,
+                delivery.attempt_id,
+                delivery.observation.event_id,
+                result.outcome,
+            ),
+        )
+        conn.execute(
+            "UPDATE run_state SET cursor = ?, tick = ? WHERE run_id = ?",
+            (index + 1, tick, run_id),
+        )
+        return {
+            "cursor": index,
+            "tick": tick,
+            "attempt_id": delivery.attempt_id,
+            "event_id": delivery.observation.event_id,
+            "outcome": result.outcome,
+        }
+
+    def run_state(self, run_id: str) -> dict:
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT * FROM run_state WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if row is None:
+                raise ValueError("unknown run %r" % (run_id,))
+            return dict(row)
+        finally:
+            conn.close()
+
+    def steps(self, run_id: str) -> tuple[dict, ...]:
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT cursor, tick, attempt_id, event_id, outcome
+                FROM steps WHERE run_id = ? ORDER BY cursor
+                """,
+                (run_id,),
+            ).fetchall()
+            return tuple(dict(row) for row in rows)
+        finally:
+            conn.close()
 
     # -- reads -----------------------------------------------------------
 

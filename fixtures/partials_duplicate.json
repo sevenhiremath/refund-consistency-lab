@@ -1,0 +1,21 @@
+{
+  "fixture": "partials_duplicate",
+  "version": 1,
+  "provider": "psp_a",
+  "notes": "Two partial refunds, with one success delivered twice.",
+  "payment": {"payment_id": "pay_A", "captured_paise": 100000},
+  "refunds": [
+    {"refund_id": "R1", "amount_paise": 30000},
+    {"refund_id": "R2", "amount_paise": 20000}
+  ],
+  "events": [
+    {"event_id": "E8", "refund_id": "R1", "status": "succeeded", "amount_paise": 30000, "at_tick": 1, "delivered": true},
+    {"event_id": "E10", "refund_id": "R2", "status": "succeeded", "amount_paise": 20000, "at_tick": 2, "delivered": true}
+  ],
+  "deliveries": [
+    {"at_tick": 2, "attempt_id": "a1", "event_id": "E8"},
+    {"at_tick": 2, "attempt_id": "a2", "event_id": "E8"},
+    {"at_tick": 3, "attempt_id": "a3", "event_id": "E10"}
+  ],
+  "end_tick": 4
+}

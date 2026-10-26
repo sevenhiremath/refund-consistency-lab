@@ -1,0 +1,17 @@
+{
+  "fixture": "duplicate_success",
+  "version": 1,
+  "provider": "psp_a",
+  "notes": "One success event delivered three times. Protected counts once.",
+  "payment": {"payment_id": "pay_A", "captured_paise": 100000},
+  "refunds": [{"refund_id": "R1", "amount_paise": 30000}],
+  "events": [
+    {"event_id": "E8", "refund_id": "R1", "status": "succeeded", "amount_paise": 30000, "at_tick": 1, "delivered": true}
+  ],
+  "deliveries": [
+    {"at_tick": 2, "attempt_id": "a1", "event_id": "E8"},
+    {"at_tick": 2, "attempt_id": "a2", "event_id": "E8"},
+    {"at_tick": 2, "attempt_id": "a3", "event_id": "E8"}
+  ],
+  "end_tick": 3
+}
