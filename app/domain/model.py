@@ -145,6 +145,7 @@ class PaymentReport:
     protected_review_paise: int
     naive_total_paise: int
     rows: tuple[RefundComparison, ...]
+    unmatched: tuple[Observation, ...] = ()
 
     def row(self, refund_id: str) -> RefundComparison:
         for row in self.rows:

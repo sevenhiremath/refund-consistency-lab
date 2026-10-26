@@ -196,6 +196,26 @@ def test_one_event_id_with_two_different_payloads_is_an_identity_conflict():
     assert row.reasons == ("event_identity_conflict",)
 
 
+def test_one_event_id_used_for_two_refunds_is_an_identity_conflict():
+    # One provider event id cannot describe two different refunds. Both refunds
+    # are identifiable, so both go under review rather than being counted.
+    deliveries = [
+        delivery("a1", "E7", "R1", "succeeded", amount_paise=30_000),
+        delivery("a2", "E7", "R2", "succeeded", amount_paise=20_000),
+    ]
+
+    report = evaluate(PAYMENT, [R1, R2], deliveries)
+
+    assert report.row("R1").protected_status == "review"
+    assert report.row("R2").protected_status == "review"
+    assert report.row("R1").reasons == ("event_identity_conflict",)
+    assert report.row("R2").reasons == ("event_identity_conflict",)
+    assert report.protected_confirmed_paise == 0
+    assert report.admitted_paise == 50_000
+    # The naive side has no identity rule, so it counts both.
+    assert report.naive_total_paise == 50_000
+
+
 # --------------------------------------------------------------------------
 # Separate partial refunds.
 # --------------------------------------------------------------------------
@@ -307,14 +327,36 @@ def test_protected_total_is_invariant_under_every_arrival_order():
     }
 
 
-def test_delivery_for_an_unknown_refund_is_ignored():
-    deliveries = [delivery("a1", "E99", "R9", "succeeded", amount_paise=99_000)]
+def test_unknown_refund_evidence_is_visible_but_changes_no_totals():
+    deliveries = [
+        delivery("a1", "E8", "R1", "succeeded"),
+        delivery("a2", "E99", "R9", "succeeded", amount_paise=99_000),
+    ]
 
     report = evaluate(PAYMENT, [R1], deliveries)
 
     assert [row.refund_id for row in report.rows] == ["R1"]
-    assert report.row("R1").protected_status == "pending"
-    assert report.naive_total_paise == 0
+    assert report.protected_confirmed_paise == 30_000
+    assert report.naive_total_paise == 30_000
+    # The evidence is not dropped, it is reported separately.
+    assert [observation.refund_id for observation in report.unmatched] == ["R9"]
+    assert report.unmatched[0].event_id == "E99"
+
+
+def test_unknown_refund_cannot_change_a_valid_refund():
+    # Even when the unknown delivery reuses an event id, it must not turn the
+    # admitted refund into a review. Unknown evidence is ingest's problem.
+    deliveries = [
+        delivery("a1", "E7", "R1", "succeeded"),
+        delivery("a2", "E7", "R9", "succeeded", amount_paise=99_000),
+    ]
+
+    report = evaluate(PAYMENT, [R1], deliveries)
+
+    assert report.row("R1").protected_status == "succeeded"
+    assert report.row("R1").protected_confirmed_paise == 30_000
+    assert report.protected_confirmed_paise == 30_000
+    assert [observation.refund_id for observation in report.unmatched] == ["R9"]
 
 
 def test_duplicate_attempt_ids_are_not_merged_by_the_reducer():

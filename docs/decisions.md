@@ -59,6 +59,32 @@ surface and about two more hours of UI.
 Cost: the demo will not show a key doing its job. The README has to point at test
 evidence instead.
 
+## Event identity is checked across the run
+
+Chosen over checking identity inside one refund only.
+Why: one refund's evidence cannot see that the same event id was reused for a
+different refund. The check therefore runs once over the whole run and its result is
+passed into each refund.
+Cost: the run and provider scope is implicit. There is no provider field yet so a
+collision is computed over the deliveries handed to one evaluation. M3 has to make
+that scope real or the check can compare unrelated runs.
+
+## Unknown refund evidence
+
+Chosen over dropping a delivery whose refund was never admitted.
+Why: dropping it hides the disagreement. Counting it would corrupt valid totals. The
+report returns it separately in `unmatched` so the evidence stays visible and no
+total moves.
+Cost: the report grows an untyped bucket. Whether such a delivery is accepted,
+rejected or quarantined is not a domain question. Unknown evidence is also excluded
+from the run-level identity check, so a reused event id on an unadmitted refund
+cannot turn an admitted refund into a review. Ingest owns that cross-boundary case.
+Acceptance check for M3 ingest: a delivery for an unadmitted refund creates no refund
+intent, changes no confirmed or naive total, and is stored as quarantined evidence
+that appears in `report.unmatched`. The domain half is covered by
+`tests/test_rules.py::test_unknown_refund_evidence_is_visible_but_changes_no_totals`
+and `test_unknown_refund_cannot_change_a_valid_refund`.
+
 ## Corrections
 
 ### The conflict flip is status level
@@ -83,3 +109,12 @@ M1 justified FastAPI by strict request model validation. M2 put validation in th
 domain dataclasses because the reducer must be testable without HTTP. FastAPI now
 carries routing and ASGI test ergonomics only. Flask would be an equally good choice
 if the remaining work stops needing ASGI tests. Dependency count would not change.
+
+### The naive baseline does no database work
+
+The M1 README said the auto-commit connection setting was the failure the naive
+baseline would exhibit. That was wrong. The baseline is a pure function over
+deliveries that makes two mistakes only: it adds on every success notification and it
+takes the last arriving status. It never writes to a database. Auto-commit still
+matters for the ingest layer, where a write outside a transaction is a real defect,
+but nothing in the current code relies on it and the torn write case is not built.

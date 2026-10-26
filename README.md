@@ -93,11 +93,16 @@ Three identities are kept apart because confusing any two produces a different b
 | failed, with or without pending | `failed`, confirmed = 0 |
 | succeeded and failed | `review` (`terminal_conflict`), confirmed = 0 |
 | any claim whose amount or currency differs from the intent | `review` (`amount_mismatch`, `currency_mismatch`), confirmed = 0 |
-| one event ID carrying two different payloads | `review` (`event_identity_conflict`) |
+| one event ID carrying conflicting claims, including across two refunds | `review` (`event_identity_conflict`) |
 
 `review` keeps the amount visible as `review_paise` and contributes nothing to
 `confirmed`. There is no automatic resolution: an unresolved refund stays unresolved
 for the run.
+
+Evidence for a refund that was never admitted is returned separately in
+`report.unmatched`. It changes no total and is not dropped. Deciding whether such a
+delivery is accepted or quarantined belongs to the ingest layer, which does not exist
+yet.
 
 **Admission is where over-refunds are prevented**, before the provider is asked. The
 sum of all admitted intents plus the new one must not exceed the captured amount, so
@@ -137,6 +142,9 @@ must be testable without HTTP at all. FastAPI therefore carries routing and test
 ergonomics, not validation. If the remaining milestones stop needing ASGI tests,
 Flask would be an equally good choice and the dependency count would not change.
 
-`app/db.py` opens SQLite with `isolation_level=None`, so statements outside an
-explicit `BEGIN IMMEDIATE` auto-commit. That is intentional: it is the failure the
-naive baseline is meant to exhibit later.
+`app/db.py` opens SQLite with `isolation_level=None`, so a statement outside an
+explicit `BEGIN IMMEDIATE` commits on its own. The setting exists so that a future
+write path has to opt into a transaction rather than inheriting one by accident. No
+such write path exists yet. The naive baseline is a pure function that counts success
+notifications and takes the last arriving status, and it performs no database writes.
+The torn write case is planned for the ingest layer and is not implemented.

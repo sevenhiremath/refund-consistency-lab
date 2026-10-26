@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Iterable, Sequence
+from typing import Collection, Iterable, Sequence
 
 from app.domain.model import (
     CANONICAL_FAILED,
@@ -64,14 +64,51 @@ def admit(
     return AdmissionResult(True, "accepted", tuple(intents) + (candidate,))
 
 
-def classify(intent: RefundIntent, observations: Iterable[Observation]) -> RefundState:
+def _claims(observations: Iterable[Observation]) -> dict[str, set[tuple[str, str, int, str]]]:
+    claims: dict[str, set[tuple[str, str, int, str]]] = defaultdict(set)
+    for observation in observations:
+        claims[observation.event_id].add(
+            (
+                observation.refund_id,
+                observation.status,
+                observation.amount_paise,
+                observation.currency,
+            )
+        )
+    return claims
+
+
+def conflicted_event_ids(observations: Iterable[Observation]) -> frozenset[str]:
+    """Event ids that carry more than one claim.
+
+    A provider event id is one fact. If the same id describes two different refunds,
+    or two different payloads for one refund, the identity cannot be trusted. Every
+    refund it touches goes under review rather than being counted.
+    """
+    return frozenset(
+        event_id
+        for event_id, claims in _claims(observations).items()
+        if len(claims) > 1
+    )
+
+
+def classify(
+    intent: RefundIntent,
+    observations: Iterable[Observation],
+    run_conflicts: Collection[str] = (),
+) -> RefundState:
     """Derive one refund's state from the *set* of evidence for it.
 
     Arrival order is never an input. Pending cannot supersede a terminal outcome,
     and two contradictory terminal outcomes stay unresolved rather than being
     settled by whichever arrived last.
+
+    ``run_conflicts`` carries event ids already found to be conflicted elsewhere in
+    the run. A collision that spans two refunds cannot be seen from one refund's
+    evidence, so the caller supplies it.
     """
     by_event: dict[str, list[Observation]] = defaultdict(list)
+    observed: list[Observation] = []
     for observation in observations:
         if observation.refund_id != intent.refund_id:
             raise ValueError(
@@ -79,19 +116,19 @@ def classify(intent: RefundIntent, observations: Iterable[Observation]) -> Refun
                 % (observation.refund_id, intent.refund_id)
             )
         by_event[observation.event_id].append(observation)
+        observed.append(observation)
 
     # One event id carrying two different claims means the provider identity is
     # unreliable. Do not pick whichever variant arrived first.
-    for variants in by_event.values():
-        payloads = {(v.status, v.amount_paise, v.currency) for v in variants}
-        if len(payloads) > 1:
-            return RefundState(
-                refund_id=intent.refund_id,
-                status=CANONICAL_REVIEW,
-                confirmed_paise=0,
-                review_paise=intent.amount_paise,
-                reasons=(REASON_EVENT_IDENTITY_CONFLICT,),
-            )
+    conflicts = set(run_conflicts) | conflicted_event_ids(observed)
+    if any(observation.event_id in conflicts for observation in observed):
+        return RefundState(
+            refund_id=intent.refund_id,
+            status=CANONICAL_REVIEW,
+            confirmed_paise=0,
+            review_paise=intent.amount_paise,
+            reasons=(REASON_EVENT_IDENTITY_CONFLICT,),
+        )
 
     unique = [variants[0] for variants in by_event.values()]
 
@@ -156,16 +193,33 @@ def evaluate(
             key=lambda intent: intent.refund_id,
         )
     )
+    scoped_ids = {intent.refund_id for intent in scoped}
 
     observations: dict[str, list[Observation]] = defaultdict(list)
+    all_observations: list[Observation] = []
     for delivery in deliveries:
         observations[delivery.refund_id].append(delivery.observation)
+        all_observations.append(delivery.observation)
+
+    # Event identity is a run-level property: the same id used for two refunds is
+    # invisible from inside either refund, so it is computed once here. Evidence for
+    # unadmitted refunds is excluded so it cannot move a valid total.
+    admitted_observations = [
+        observation
+        for observation in all_observations
+        if observation.refund_id in scoped_ids
+    ]
+    run_conflicts = conflicted_event_ids(admitted_observations)
 
     naive = run_naive(scoped, deliveries)
 
     rows = []
     for intent in scoped:
-        state = classify(intent, observations.get(intent.refund_id, ()))
+        state = classify(
+            intent,
+            observations.get(intent.refund_id, ()),
+            run_conflicts,
+        )
         naive_state = naive.get(
             intent.refund_id,
             NaiveRefund(intent.refund_id, STATUS_PENDING, 0),
@@ -183,6 +237,26 @@ def evaluate(
             )
         )
 
+    # Evidence for refunds that were never admitted is kept, not dropped. It must
+    # not move any total; surfacing it is the report's job.
+    unmatched: list[Observation] = []
+    seen: set[tuple[str, str, str, int, str]] = set()
+    for observation in all_observations:
+        if observation.refund_id in scoped_ids:
+            continue
+        key = (
+            observation.event_id,
+            observation.refund_id,
+            observation.status,
+            observation.amount_paise,
+            observation.currency,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unmatched.append(observation)
+    unmatched.sort(key=lambda observation: (observation.refund_id, observation.event_id))
+
     return PaymentReport(
         payment_id=payment.payment_id,
         captured_paise=payment.captured_paise,
@@ -191,4 +265,5 @@ def evaluate(
         protected_review_paise=sum(row.protected_review_paise for row in rows),
         naive_total_paise=sum(row.naive_total_paise for row in rows),
         rows=tuple(rows),
+        unmatched=tuple(unmatched),
     )
