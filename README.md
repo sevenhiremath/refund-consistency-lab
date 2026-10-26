@@ -120,6 +120,7 @@ app/domain/rules.py  admission, evidence reducer, comparison
 app/domain/naive.py  the deliberately naive baseline
 app/main.py          app factory, / and /health
 app/templates/       server-rendered page
+docs/decisions.md    tradeoffs and corrections
 tests/               health, page, database, money, admission and rule tests
 ```
 
