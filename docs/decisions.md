@@ -85,6 +85,33 @@ that appears in `report.unmatched`. The domain half is covered by
 `tests/test_rules.py::test_unknown_refund_evidence_is_visible_but_changes_no_totals`
 and `test_unknown_refund_cannot_change_a_valid_refund`.
 
+## One evidence row per delivery attempt
+
+Chosen over a separate table for accepted claims only.
+Why: the same row serves both jobs. Every delivery is evidence, and an `accepted`
+marker plus a partial unique index makes at most one claim per event count. Duplicates
+and conflicting payloads stay visible in the same place.
+Cost: the report replays every row rather than reading only accepted ones. That is
+deliberate. A conflicting claim has to be able to put two refunds under review and
+accepted-only rows cannot do that.
+
+## Both projections commit with the delivery
+
+Chosen over the split commit boundary described in the plan.
+Why: the split needs the simulator cursor which does not exist yet. Writing both
+projections in the ingest transaction is what makes the rollback test meaningful.
+Cost: the naive side is atomic for now so the torn write cannot be demonstrated. M4
+has to split the boundary when it adds the cursor, and the naive side then has to
+keep its own transaction.
+
+## Transport retry is gated by the attempt id
+
+Chosen over a timestamp or a header flag.
+Why: the attempt id is the only identity that separates our own retry of one delivery
+from a provider retry of one event. The primary key decides, so the check cannot race.
+Cost: the caller must reuse the attempt id when it retries. A client that invents a
+new id per transport retry looks like a new provider delivery.
+
 ## Corrections
 
 ### The conflict flip is status level
