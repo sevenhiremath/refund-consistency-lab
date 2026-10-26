@@ -340,3 +340,28 @@ Why: those each open their own transaction, so a failure between them would leav
 workspace with no payment, which the service cannot serve and nothing would clean up.
 Cost: one more store method beside the demo path, and the two paths share private row
 writers to avoid drifting.
+
+## The integration API is absent without a key
+
+Chosen over mounting the routes and answering 401.
+Why: an absent surface is indistinguishable from a path that does not exist, so
+without a configured key there is nothing to discover or probe. The demonstration
+routes are unaffected, so the public lab keeps working on its own.
+Cost: the routes are always registered, so the check is a dependency rather than a
+mounting decision. One key for the whole server means no per-client revocation.
+
+## The key is read from the header only
+
+Chosen over accepting a query parameter.
+Why: a key in a URL ends up in proxy logs and browser history. A header does not.
+Cost: the key cannot be used from a plain browser address bar, which is fine for a
+backend integration.
+
+## The delivery origin is fixed on the server
+
+Chosen over accepting an origin field.
+Why: a caller could otherwise claim an observation came from a provider lookup, and
+the naive baseline skips lookups. Letting that be caller controlled would make the
+naive comparison meaningless.
+Cost: there is no way to submit a lookup observation, which is correct until a real
+provider adapter exists.

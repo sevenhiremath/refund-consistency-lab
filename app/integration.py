@@ -8,16 +8,23 @@ from app.domain.model import Delivery, Observation, Payment, RefundIntent
 from app.store import AdmissionResult, IngestResult, Store
 
 
+# One payment, a handful of refunds. Bounded so a workspace cannot grow without limit.
+MAX_REFUNDS_PER_WORKSPACE = 50
+
+
 class IntegrationError(Exception):
     """A request the integration service cannot serve.
 
     Carries a status so a future HTTP layer can map it without inventing rules here.
     """
 
-    def __init__(self, status: int, message: str) -> None:
+    def __init__(
+        self, status: int, message: str, headers: dict[str, str] | None = None
+    ) -> None:
         super().__init__(message)
         self.status = status
         self.message = message
+        self.headers = headers or {}
 
 
 @dataclass(frozen=True)
@@ -101,10 +108,19 @@ class IntegrationService:
             currency=payment.currency,
         )
 
+    def workspace(self, workspace_id: str) -> Workspace:
+        return self._workspace(workspace_id)
+
     def register_refund(
         self, workspace_id: str, refund_id: str, amount_paise: int
     ) -> AdmissionResult:
         workspace = self._workspace(workspace_id)
+        already = self.store.refund_exists(workspace_id, refund_id)
+        if not already and self.store.refund_count(workspace_id) >= MAX_REFUNDS_PER_WORKSPACE:
+            raise IntegrationError(
+                409,
+                "workspace refund limit reached (%d)" % MAX_REFUNDS_PER_WORKSPACE,
+            )
         intent = RefundIntent(refund_id, workspace.payment_id, amount_paise)
         return self.store.admit(workspace_id, intent)
 

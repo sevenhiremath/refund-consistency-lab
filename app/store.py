@@ -349,6 +349,19 @@ class Store:
     def run_kind(self, run_id: str) -> str:
         return self.run_info(run_id)["kind"]
 
+    def refund_exists(self, run_id: str, refund_id: str) -> bool:
+        conn = self._connect()
+        try:
+            return (
+                conn.execute(
+                    "SELECT 1 FROM refund_intents WHERE run_id = ? AND refund_id = ?",
+                    (run_id, refund_id),
+                ).fetchone()
+                is not None
+            )
+        finally:
+            conn.close()
+
     def run_payments(self, run_id: str) -> tuple[Payment, ...]:
         conn = self._connect()
         try:

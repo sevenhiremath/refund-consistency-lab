@@ -252,6 +252,61 @@ A lookup never creates a refund and never changes provider truth. Repeating the 
 refund and tick returns the recorded outcome and adds no evidence. The naive baseline
 is webhook-only, so lookups do not reach it.
 
+## Integration API
+
+A trusted backend can register its own payment and refunds and submit already
+normalized refund observations, then read the protected status. This is **not** a
+payment provider webhook endpoint. It does not verify provider signatures, it does not
+execute refunds, and it sends no outgoing notifications.
+
+Every route needs the configured key in an `Authorization: Bearer` header. The key
+comes from `INTEGRATION_API_KEY`. It is never accepted in a URL, never echoed in a
+response, and never written to a tracked file. With no key configured the whole
+surface answers 404, and the public demonstration keeps working without one.
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/v1/workspaces` | create a workspace and its payment |
+| POST | `/v1/workspaces/{id}/refunds` | register a refund intent |
+| POST | `/v1/workspaces/{id}/deliveries` | submit one normalized delivery |
+| GET | `/v1/workspaces/{id}` | protected status with evidence |
+
+```bash
+curl -X POST https://<host>/v1/workspaces \
+  -H "Authorization: Bearer $INTEGRATION_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"provider":"psp_x","payment_id":"pay_1","captured_paise":100000}'
+```
+
+A delivery returns the recorded ingestion outcome and the refund's resulting status
+separately, because a recorded delivery does not mean the refund succeeded:
+
+```json
+{"outcome":"accepted","recorded":true,
+ "refund":{"refund_id":"R1","status":"succeeded","confirmed_paise":30000,
+           "review_paise":0,"reasons":[]}}
+```
+
+Amounts are integer paise and must be sent as a JSON number. Strings, floats and
+booleans are rejected. Identifiers are bounded to 64 characters and unknown fields
+are refused. The delivery origin is fixed to a webhook on the server, so a caller
+cannot claim a provider lookup happened.
+
+Registering the same refund twice is a safe retry and answers 200 with
+`already_admitted`. Changing the amount for an existing refund id is a 409 with
+`refund_id_conflict`.
+
+There is no lookup route. Provider lookup stays inside the demonstration until there
+is a real adapter, and the API never answers from fixture truth.
+
+The demo pages and the demonstration API cannot reach integration data. A demo route
+pointed at an integration workspace answers 404, so there is no path to user data
+without the key, and no path to a simulated lookup over it.
+
+Identity is scoped to one workspace and one provider. The same provider event id in
+two workspaces is two independent observations. Deduplication is not promised across
+workspaces.
+
 ## Page and API
 
 `/walkthrough` is the guided entry point: three of the twelve scenarios with a short

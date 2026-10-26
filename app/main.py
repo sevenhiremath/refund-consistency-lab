@@ -14,6 +14,8 @@ from app.api import router as api_router
 from app.config import VERSION, Settings
 from app.domain.money import format_paise
 from app.errors import LabError
+from app.integration import IntegrationError, IntegrationService
+from app.integration_api import router as integration_router
 from app.lab_service import LabService
 from app.pages import router as pages_router
 from app.store import Store
@@ -37,11 +39,13 @@ def create_app(settings: Settings | None = None, fixtures_dir: Path | None = Non
             store = Store(resolved.db_path)
             store.initialize()
             application.state.lab = LabService(store, fixtures_dir, resolved.git_sha)
+            application.state.integration = IntegrationService(store)
             application.state.lab_error = None
         except (sqlite3.Error, OSError, ValueError) as exc:
             # /health still reports the database problem, and pages explain it,
             # instead of the process failing to start with no diagnosis.
             application.state.lab = None
+            application.state.integration = None
             application.state.lab_error = "%s: %s" % (type(exc).__name__, exc)
         yield
 
@@ -93,8 +97,17 @@ def create_app(settings: Settings | None = None, fixtures_dir: Path | None = Non
             status_code=exc.status_code,
         )
 
+    @app.exception_handler(IntegrationError)
+    async def integration_error(request: Request, exc: IntegrationError):
+        return JSONResponse(
+            {"error": exc.message},
+            status_code=exc.status,
+            headers=exc.headers or None,
+        )
+
     app.include_router(pages_router)
     app.include_router(api_router)
+    app.include_router(integration_router)
     return app
 
 
