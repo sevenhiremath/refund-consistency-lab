@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.errors import LabError
+from app.guided import GUIDED_STEPS, label_for
 from app.sim.fixture import Fixture, load_fixture
 from app.sim.runner import Runner, RunReport
 from app.store import LookupRecord, LookupStale, StepConflict, StepOutcome, Store
@@ -39,6 +40,7 @@ class LabService:
         return [
             {
                 "name": fixture.name,
+                "label": label_for(fixture.name),
                 "notes": fixture.notes,
                 "provider": fixture.provider,
                 "refunds": len(fixture.refunds),

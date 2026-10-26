@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Guided walkthrough · Refund Consistency Lab{% endblock %}
+{% block content %}
+  <p class="eyebrow">Three scenarios, about a minute</p>
+  <h1>Refund Consistency Lab</h1>
+  <p class="lede">
+    The same refund notifications reach two processors: one that only trusts
+    webhooks, and one that also asks the provider when something is missing. This
+    walkthrough shows the three ways their records most often disagree.
+  </p>
+
+  <ol class="steps">
+    {% for step in guided %}
+      <li>
+        <h2><span class="step-num">{{ loop.index }}</span> {{ step.title }}</h2>
+        <p class="muted">{{ step.claim }}</p>
+        <form method="post" action="/runs" data-busy>
+          <input type="hidden" name="scenario" value="{{ step.scenario }}">
+          <button type="submit" data-busy-label="Starting…">Open this step</button>
+        </form>
+      </li>
+    {% endfor %}
+  </ol>
+
+  <p class="note">
+    Every number below the fold comes from the same backend report the API returns.
+    Nothing is precomputed for the walkthrough.
+  </p>
+
+  <h2 style="margin-top:2rem">All scenarios</h2>
+  <p class="muted small">
+    The guided steps are three of {{ scenarios | length }}. Every one stays available.
+  </p>
+  {% for scenario in scenarios %}
+    <article class="card">
+      <div>
+        <h2>{{ scenario.label }}</h2>
+        <p class="muted">{{ scenario.notes }}</p>
+        <p class="muted small">
+          {{ scenario.refunds }} refunds · {{ scenario.deliveries }} scheduled deliveries ·
+          {{ scenario.dropped }} dropped events · <code>{{ scenario.name }}</code>
+        </p>
+      </div>
+      <form method="post" action="/runs" data-busy>
+        <input type="hidden" name="scenario" value="{{ scenario.name }}">
+        <button type="submit" data-busy-label="Starting…">Start</button>
+      </form>
+    </article>
+  {% endfor %}
+
+  <p class="muted small" style="margin-top:1.5rem">
+    Version {{ version }}. Reference data only, no real payments.
+  </p>
+{% endblock %}

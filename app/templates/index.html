@@ -8,14 +8,18 @@
   </p>
 
   <h2>Scenarios</h2>
+  <p class="muted">
+    New here? The <a href="/walkthrough">guided walkthrough</a> covers three of these
+    with an explanation of what to look for.
+  </p>
   {% for scenario in scenarios %}
     <article class="card">
       <div>
-        <h2>{{ scenario.name }}</h2>
+        <h2>{{ scenario.label }}</h2>
         <p class="muted">{{ scenario.notes }}</p>
         <p class="muted small">
           {{ scenario.refunds }} refunds · {{ scenario.deliveries }} scheduled deliveries ·
-          {{ scenario.dropped }} dropped events · provider {{ scenario.provider }}
+          {{ scenario.dropped }} dropped events · <code>{{ scenario.name }}</code>
         </p>
       </div>
       <form method="post" action="/runs" data-busy>

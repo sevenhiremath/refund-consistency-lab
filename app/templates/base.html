@@ -71,6 +71,50 @@
     .note { border-left: 3px solid var(--line); padding: .1rem 0 .1rem .7rem; color: var(--muted); margin: 1rem 0 0; max-width: 46rem; }
     [aria-busy="true"] { opacity: .6; }
     .busy-note { font-size: .8rem; color: var(--muted); }
+    .eyebrow {
+      font-size: .75rem; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); margin: .2rem 0 0;
+    }
+    .lede { font-size: 1.02rem; max-width: 44rem; margin: .5rem 0 1.2rem; }
+    .duel {
+      display: grid; grid-template-columns: 1fr 1fr; gap: .9rem;
+      margin: 1.2rem 0 1rem;
+    }
+    .duel .side {
+      border: 1px solid var(--line); border-radius: .6rem;
+      padding: .9rem 1rem 1rem;
+    }
+    .duel .side.protected { border-color: #9bb7ff; }
+    .duel h2 { margin: 0 0 .15rem; font-size: .95rem; }
+    .duel .side-note { margin: 0; font-size: .8rem; color: var(--muted); }
+    .figure {
+      font-size: 2rem; font-variant-numeric: tabular-nums;
+      margin: .5rem 0 .35rem; letter-spacing: -.01em;
+    }
+    .duel .protected .figure { font-weight: 600; }
+    .side-status { margin: 0; font-size: .85rem; }
+    .meta.compact { margin: .9rem 0 0; gap: .9rem 1.4rem; }
+    .steps { padding-left: 0; list-style: none; margin: 1.2rem 0; }
+    .steps li {
+      border: 1px solid var(--line); border-radius: .6rem;
+      padding: .9rem 1rem; margin: .7rem 0;
+    }
+    .steps h2 { margin: 0 0 .25rem; font-size: 1rem; display: flex; gap: .5rem; align-items: baseline; }
+    .step-num {
+      display: inline-block; min-width: 1.4rem; height: 1.4rem; line-height: 1.4rem;
+      text-align: center; border-radius: 999px; border: 1px solid var(--line);
+      font-size: .78rem; color: var(--muted);
+    }
+    .steps form { margin: .55rem 0 0; }
+    details.tech {
+      border-top: 1px solid var(--line); margin-top: 1.6rem; padding-top: .2rem;
+    }
+    details.tech > summary {
+      cursor: pointer; padding: .7rem 0; font-weight: 600; font-size: .92rem;
+    }
+    details.tech > summary:hover { color: var(--accent); }
+    .tech-body { padding-bottom: .5rem; }
+    @media (max-width: 640px) { .duel { grid-template-columns: 1fr; } }
     @media (max-width: 640px) { .card { flex-direction: column; align-items: flex-start; } }
   </style>
 </head>

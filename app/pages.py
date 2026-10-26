@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from app.config import VERSION
 from app.errors import LabError
+from app.guided import GUIDED_STEPS, guided_step
 from app.lab_service import LabService
 
 router = APIRouter()
@@ -23,6 +24,11 @@ def _lab(request: Request) -> LabService:
 
 def _templates(request: Request):
     return request.app.state.templates
+
+
+def _guided_suffix(request: Request) -> str:
+    """Keep the guided flag across a redirect."""
+    return "?guided=1" if request.query_params.get("guided") else ""
 
 
 def _int_field(form, name: str, default: int) -> int:
@@ -47,6 +53,21 @@ async def index(request: Request) -> HTMLResponse:
         context={
             "version": VERSION,
             "scenarios": _lab(request).scenarios(),
+            "guided": GUIDED_STEPS,
+        },
+    )
+
+
+@router.get("/walkthrough", response_class=HTMLResponse)
+async def walkthrough(request: Request) -> HTMLResponse:
+    """Entry point for the guided path. The full list stays at /."""
+    return _templates(request).TemplateResponse(
+        request=request,
+        name="walkthrough.html",
+        context={
+            "version": VERSION,
+            "scenarios": _lab(request).scenarios(),
+            "guided": GUIDED_STEPS,
         },
     )
 
@@ -54,8 +75,10 @@ async def index(request: Request) -> HTMLResponse:
 @router.post("/runs")
 async def create_run(request: Request) -> RedirectResponse:
     form = await request.form()
-    run_id = _lab(request).start(str(form.get("scenario", "")))
-    return RedirectResponse("/runs/%s" % run_id, status_code=303)
+    scenario = str(form.get("scenario", ""))
+    run_id = _lab(request).start(scenario)
+    suffix = "?guided=1" if guided_step(scenario) else ""
+    return RedirectResponse("/runs/%s%s" % (run_id, suffix), status_code=303)
 
 
 @router.get("/runs/{run_id}", response_class=HTMLResponse)
@@ -78,6 +101,7 @@ async def run_page(request: Request, run_id: str) -> HTMLResponse:
             "finished": body["progress"]["finished"],
             "digest": report.digest,
             "pending_refunds": pending_refunds,
+            "guided": guided_step(str(body["fixture"]["name"])),
         },
     )
 
@@ -87,7 +111,7 @@ async def step(request: Request, run_id: str) -> RedirectResponse:
     form = await request.form()
     expected = _int_field(form, "expected_cursor", 0)
     _lab(request).step(run_id, expected)
-    return RedirectResponse("/runs/%s" % run_id, status_code=303)
+    return RedirectResponse("/runs/%s%s" % (run_id, _guided_suffix(request)), status_code=303)
 
 
 @router.post("/runs/{run_id}/run")
@@ -95,7 +119,7 @@ async def run_to_end(request: Request, run_id: str) -> RedirectResponse:
     form = await request.form()
     expected = _int_field(form, "expected_cursor", 0)
     _lab(request).run_to_end(run_id, expected)
-    return RedirectResponse("/runs/%s" % run_id, status_code=303)
+    return RedirectResponse("/runs/%s%s" % (run_id, _guided_suffix(request)), status_code=303)
 
 
 @router.post("/runs/{run_id}/reconcile")
@@ -104,13 +128,15 @@ async def reconcile(request: Request, run_id: str) -> RedirectResponse:
     current = _lab(request).report(run_id).body["progress"]["tick"]
     tick = _int_field(form, "tick", current)
     _lab(request).reconcile(run_id, str(form.get("refund_id", "")), tick)
-    return RedirectResponse("/runs/%s" % run_id, status_code=303)
+    return RedirectResponse("/runs/%s%s" % (run_id, _guided_suffix(request)), status_code=303)
 
 
 @router.post("/runs/{run_id}/replay")
 async def replay(request: Request, run_id: str) -> RedirectResponse:
     new_run = _lab(request).replay(run_id)
-    return RedirectResponse("/runs/%s" % new_run, status_code=303)
+    return RedirectResponse(
+        "/runs/%s%s" % (new_run, _guided_suffix(request)), status_code=303
+    )
 
 
 @router.get("/runs/{run_id}/evidence")

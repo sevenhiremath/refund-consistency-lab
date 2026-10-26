@@ -14,6 +14,17 @@ def start(client, scenario):
     return response.headers["location"]
 
 
+def base_path(location):
+    """The run path without the guided flag, for building sub-paths."""
+    return location.split("?")[0]
+
+
+def action_url(location, action):
+    """Build a sub-path URL, keeping the guided flag after the path."""
+    path, _, query = location.partition("?")
+    return path + action + ("?" + query if query else "")
+
+
 def test_picker_lists_scenarios(client):
     response = client.get("/")
 
@@ -53,7 +64,7 @@ def test_step_advances_and_renders_the_delivery(client):
 def test_run_to_end_shows_the_naive_divergence(client):
     location = start(client, "duplicate_success")
 
-    page = client.post(location + "/run", data={"expected_cursor": "0"}, follow_redirects=True)
+    page = client.post(base_path(location) + "/run", data={"expected_cursor": "0"}, follow_redirects=True)
 
     assert page.status_code == 200
     assert page.text.count("300.00") >= 1
@@ -66,7 +77,7 @@ def test_reconcile_recovers_a_missing_success(client):
     location = start(client, "lookup_recovers_success")
 
     page = client.post(
-        location + "/reconcile",
+        base_path(location) + "/reconcile",
         data={"refund_id": "R1", "tick": "3"},
         follow_redirects=True,
     )
@@ -79,10 +90,10 @@ def test_reconcile_recovers_a_missing_success(client):
 
 def test_reconcile_keeps_a_conflict_unresolved(client):
     location = start(client, "lookup_conflict")
-    client.post(location + "/run", data={"expected_cursor": "0"}, follow_redirects=True)
+    client.post(base_path(location) + "/run", data={"expected_cursor": "0"}, follow_redirects=True)
 
     page = client.post(
-        location + "/reconcile",
+        base_path(location) + "/reconcile",
         data={"refund_id": "R1", "tick": "4"},
         follow_redirects=True,
     )
@@ -94,9 +105,9 @@ def test_reconcile_keeps_a_conflict_unresolved(client):
 
 def test_replay_creates_a_separate_run(client):
     location = start(client, "healthy")
-    client.post(location + "/run", data={"expected_cursor": "0"}, follow_redirects=True)
+    client.post(base_path(location) + "/run", data={"expected_cursor": "0"}, follow_redirects=True)
 
-    replayed = client.post(location + "/replay", follow_redirects=False)
+    replayed = client.post(base_path(location) + "/replay", follow_redirects=False)
 
     assert replayed.status_code == 303
     assert replayed.headers["location"] != location
@@ -105,9 +116,9 @@ def test_replay_creates_a_separate_run(client):
 
 def test_evidence_download_is_a_json_attachment(client):
     location = start(client, "duplicate_success")
-    client.post(location + "/run", data={"expected_cursor": "0"}, follow_redirects=True)
+    client.post(base_path(location) + "/run", data={"expected_cursor": "0"}, follow_redirects=True)
 
-    response = client.get(location + "/evidence")
+    response = client.get(base_path(location) + "/evidence")
 
     assert response.status_code == 200
     assert "attachment" in response.headers["content-disposition"]
@@ -133,10 +144,10 @@ def test_unknown_scenario_shows_a_404_page(client):
 
 def test_reconcile_in_the_past_shows_a_400_page(client):
     location = start(client, "lookup_conflict")
-    client.post(location + "/run", data={"expected_cursor": "0"}, follow_redirects=True)
+    client.post(base_path(location) + "/run", data={"expected_cursor": "0"}, follow_redirects=True)
 
     response = client.post(
-        location + "/reconcile",
+        base_path(location) + "/reconcile",
         data={"refund_id": "R1", "tick": "1"},
     )
 
@@ -146,7 +157,7 @@ def test_reconcile_in_the_past_shows_a_400_page(client):
 
 def test_finished_run_disables_step_buttons(client):
     location = start(client, "healthy")
-    page = client.post(location + "/run", data={"expected_cursor": "0"}, follow_redirects=True)
+    page = client.post(base_path(location) + "/run", data={"expected_cursor": "0"}, follow_redirects=True)
 
     assert 'disabled>Step' in page.text
     assert 'disabled>Run to end' in page.text
@@ -162,3 +173,104 @@ def test_complete_delivery_with_a_pending_refund_explains_the_unknown(client):
     assert "still pending" in page.text
     assert "unknown, not a failure" in page.text
     assert "Reconcile" in page.text
+
+
+# -- the guided walkthrough ----------------------------------------------
+
+
+def test_walkthrough_lists_the_three_guided_steps(client):
+    response = client.get("/walkthrough")
+
+    assert response.status_code == 200
+    body = response.text
+    assert "The same notification, three times" in body
+    assert "The notification that never arrived" in body
+    assert "When the provider contradicts itself" in body
+    # Every scenario stays reachable from the same page.
+    assert "All scenarios" in body
+    assert "Healthy control" in body
+    assert body.count("Open this step") == 3
+
+
+def test_walkthrough_starts_a_guided_scenario(client):
+    response = client.post(
+        "/runs", data={"scenario": "duplicate_success"}, follow_redirects=False
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].endswith("?guided=1")
+
+
+def test_guided_page_labels_both_sides_and_shows_one_figure(client):
+    location = start(client, "duplicate_success")
+
+    # Before anything is delivered both records are empty, and the page says so.
+    empty = client.get(location)
+    assert "Nothing has been delivered yet" in empty.text
+
+    client.post(
+        action_url(location, "/run"), data={"expected_cursor": "0"}, follow_redirects=True
+    )
+    page = client.get(location)
+
+    assert page.status_code == 200
+    assert "Webhooks only" in page.text
+    assert "Webhooks plus explicit lookup" in page.text
+    assert "₹900.00" in page.text
+    assert "₹300.00" in page.text
+    # The local record framing must be visible.
+    assert "not three payouts" in page.text
+
+
+def test_guided_page_keeps_technical_detail_behind_a_disclosure(client):
+    location = start(client, "duplicate_success")
+    page = client.get(location)
+
+    assert "Identifiers" in page.text
+    assert "<details" in page.text
+    assert "Action log" in page.text
+
+
+def test_guided_flag_survives_an_action(client):
+    location = start(client, "duplicate_success")
+    assert location.endswith("?guided=1")
+
+    response = client.post(
+        action_url(location, "/run"),
+        data={"expected_cursor": "0"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].endswith("?guided=1")
+
+
+def test_guided_page_keeps_the_full_list_reachable(client):
+    page = client.get("/")
+
+    assert "Healthy control" in page.text
+    assert "Conflicting results" in page.text
+    assert "/walkthrough" in page.text
+
+
+def test_guided_flag_survives_replay(client):
+    location = start(client, "duplicate_success")
+    client.post(
+        action_url(location, "/run"), data={"expected_cursor": "0"}, follow_redirects=True
+    )
+
+    replayed = client.post(action_url(location, "/replay"), follow_redirects=False)
+
+    assert replayed.status_code == 303
+    assert replayed.headers["location"].endswith("?guided=1")
+
+
+def test_guided_copy_does_not_claim_a_result_before_deliveries(client):
+    location = start(client, "duplicate_success")
+    page = client.get(location)
+
+    # Explanation of the scenario is allowed. A stated current total is not.
+    assert "now records" not in page.text
+    assert "records ₹900" not in page.text
+    assert "Nothing has been delivered yet" in page.text
+    assert "₹0.00" in page.text

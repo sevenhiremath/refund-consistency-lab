@@ -254,7 +254,16 @@ is webhook-only, so lookups do not reach it.
 
 ## Page and API
 
-`/` lists the twelve scenarios. A run page shows both processors side by side and
+`/walkthrough` is the guided entry point: three of the twelve scenarios with a short
+explanation of what to look for. `/` lists all twelve, and the guided steps stay
+reachable from it. A guided run page highlights one comparison between the naive side
+(`Webhooks only`) and the protected side (`Webhooks plus explicit lookup`), with totals,
+action log, evidence and identifiers behind disclosure blocks. Nothing in the
+walkthrough is precomputed: every figure is rendered from the same report the API
+returns, and the explanation of a scenario is written so it does not assert a current
+total before the deliveries run.
+
+A run page shows both processors side by side and
 offers Step, Run to end, Reconcile, Replay and Download evidence.
 
 Every number on the page comes from a `RunReport` built in `app/lab_service.py`.
