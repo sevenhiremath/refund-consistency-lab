@@ -150,6 +150,39 @@ Cost: one extra projection pass per admission. It also made the M3 rollback test
 stricter, since the surviving state row is now proof that the failed ingest added
 nothing.
 
+## A lookup is evidence, not an override
+
+Chosen over letting the query result replace local state.
+Why: a lookup is another observation and it goes through the same reducer. If it
+contradicts a terminal result both stay visible and the refund stays in review. A
+provider that changes its story cannot erase what it already told us.
+Cost: more refunds end in review instead of resolving, and confirmed totals drop when
+that happens.
+
+## The naive baseline never sees lookups
+
+Chosen over giving both processors the same recovery path.
+Why: the baseline's documented defect is counting notifications. Giving it a lookup
+would turn the comparison into a capability difference and the missing-notification
+case would stop diverging.
+Cost: the comparison is asymmetric. The report has to keep saying which side had a
+lookup, or a reader will think the baseline was simply beaten.
+
+## Every action goes in the digest
+
+Chosen over hashing only the final state.
+Why: the same fixture can be queried at different ticks and that changes the answer.
+Hashing state alone would hide which query produced it.
+Cost: an extra action log to keep in order, and a run that is stepped by hand must
+produce the same actions as a run to end for the digests to agree.
+
+## Delivery claims must match their event
+
+Chosen over free-form delivery payloads.
+Why: otherwise a typo in a fixture looks exactly like an intentional contradiction.
+Cost: a deliberate conflict needs an extra flag and a payload, so the conflict fixture
+is slightly more verbose than the others.
+
 ## Corrections
 
 ### The conflict flip is status level
