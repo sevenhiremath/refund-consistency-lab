@@ -8,7 +8,8 @@ import pytest
 from app.sim.fixture import FixtureError, load_fixture, parse_fixture
 from app.sim.provider import ProviderView
 from app.sim.runner import Runner
-from app.store import Store
+from app.domain.model import Observation
+from app.store import LookupStale, Store
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 
@@ -431,3 +432,81 @@ def test_api_rejects_lookup_at_the_second_delivery_tick(client):
     finished = client.post("/api/runs/%s/run" % run_id, json={"expected_cursor": 1})
     assert finished.status_code == 200
     assert finished.json()["progress"]["finished"] is True
+
+
+# -- D5: a lookup is re-checked inside the write transaction ---------------
+
+
+def test_stale_lookup_is_rejected_and_leaves_replay_working(store, monkeypatch):
+    """The run advances between reading provider truth and persisting the result.
+
+    The interleaving is forced, not timed: the deliveries are applied from inside the
+    provider lookup, which is where a competing request would land.
+    """
+    runner, run_id = start(store, "pending_after_success")
+    real_lookup = ProviderView.lookup
+
+    def interleaved(self, refund_id, tick):
+        result = real_lookup(self, refund_id, tick)
+        runner.run_to_end(run_id, 0)  # another request applies ticks 2 and 3
+        return result
+
+    monkeypatch.setattr(ProviderView, "lookup", interleaved)
+
+    with pytest.raises(LookupStale, match="stale"):
+        runner.reconcile(run_id, "R1", 2)
+
+    monkeypatch.undo()
+
+    actions = runner.report(run_id).body["actions"]
+    assert [action["kind"] for action in actions] == ["delivery", "delivery"]
+    assert [action["tick"] for action in actions] == [2, 3]
+
+    # Nothing from the stale lookup was written, so replay still works and matches.
+    replayed_run = runner.replay(run_id)
+    replayed = runner.report(replayed_run)
+    assert replayed.digest == runner.report(run_id).digest
+    assert [a["tick"] for a in replayed.body["actions"]] == [2, 3]
+
+
+def test_store_rejects_a_lookup_from_before_the_clock(store):
+    runner, run_id = start(store, "pending_after_success")
+    runner.run_to_end(run_id, 0)
+
+    with pytest.raises(LookupStale, match="stale"):
+        store.record_lookup(
+            run_id,
+            "psp_a",
+            "R1",
+            2,
+            "pending",
+            Observation("lookup:R1:2", "R1", "pending", 30_000),
+            schedule_ticks=(2, 3),
+        )
+
+    assert len(store.actions(run_id)) == 2
+    assert len(store.findings(run_id)) == 0
+
+
+def test_api_returns_clean_error_for_a_stale_lookup(client, monkeypatch):
+    from app.sim.provider import ProviderView
+
+    run_id = client.post("/api/runs", json={"scenario": "pending_after_success"}).json()["run_id"]
+    real_lookup = ProviderView.lookup
+
+    def interleaved(self, refund_id, tick):
+        result = real_lookup(self, refund_id, tick)
+        client.post("/api/runs/%s/run" % run_id, json={"expected_cursor": 0})
+        return result
+
+    monkeypatch.setattr(ProviderView, "lookup", interleaved)
+
+    response = client.post(
+        "/api/runs/%s/reconcile" % run_id, json={"refund_id": "R1", "tick": 2}
+    )
+
+    assert response.status_code == 409
+    assert "stale" in response.json()["error"]
+
+    report = client.get("/api/runs/%s" % run_id).json()
+    assert [a["kind"] for a in report["actions"]] == ["delivery", "delivery"]

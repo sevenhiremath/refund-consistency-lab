@@ -102,7 +102,13 @@ class Runner:
 
         result = ProviderView(fixture).lookup(refund_id, tick)
         return self.store.record_lookup(
-            run_id, fixture.provider, refund_id, tick, result.outcome, result.observation
+            run_id,
+            fixture.provider,
+            refund_id,
+            tick,
+            result.outcome,
+            result.observation,
+            schedule_ticks=tuple(item.at_tick for item in fixture.schedule),
         )
 
     def replay(self, run_id: str) -> str:

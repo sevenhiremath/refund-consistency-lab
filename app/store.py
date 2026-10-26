@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -170,6 +171,14 @@ class IngestResult:
 
 class StepConflict(Exception):
     """The caller's expected cursor is ahead of the stored cursor."""
+
+
+class LookupStale(Exception):
+    """A lookup result arrived after the run moved past the tick it describes.
+
+    Raised inside the write transaction, so nothing is recorded. The provider query
+    it came from is discarded rather than stored against the wrong moment.
+    """
 
 
 @dataclass(frozen=True)
@@ -382,15 +391,20 @@ class Store:
             # Same attempt id, different claim. The original row is left untouched,
             # the incoming claim is kept as finding evidence, and neither projection
             # sees it, so no total moves.
+            #
+            # The key carries the claim itself, so a second, different conflict gets
+            # its own finding instead of overwriting the first. Repeating an
+            # identical claim produces the same key and stays idempotent.
+            claim_digest = hashlib.sha256(repr(incoming_claim).encode("utf-8")).hexdigest()[:12]
             self._add_finding(
                 conn,
                 run_id,
-                "attempt_conflict:%s" % delivery.attempt_id,
+                "attempt_conflict:%s:%s" % (delivery.attempt_id, claim_digest),
                 "attempt_identity_conflict",
                 refund_id=observation.refund_id,
                 event_id=observation.event_id,
-                detail="attempt id reused with a different claim: stored %r, received %r"
-                % (stored_claim, incoming_claim),
+                detail="attempt id %s reused with a different claim: stored %r, received %r"
+                % (delivery.attempt_id, stored_claim, incoming_claim),
             )
             return IngestResult(
                 observation.event_id, "attempt_conflict", recorded=True
@@ -714,14 +728,42 @@ class Store:
         tick: int,
         outcome: str,
         observation: Observation | None,
+        schedule_ticks: Sequence[int] = (),
     ) -> LookupRecord:
         """Record one provider query and its evidence.
 
         A query at the same refund and tick is the same query. Repeating it returns
         the recorded outcome and adds nothing, so pressing reconcile twice cannot
         manufacture evidence.
+
+        The clock is re-checked here, inside the write transaction. Callers validate
+        before querying the provider, which happens outside the lock, so the run can
+        move on in between. Applying a delivery between that check and this write
+        used to leave an action whose tick was behind the run, which broke replay.
+        A stale result is rejected before anything is written.
         """
         with self._write() as conn:
+            state = conn.execute(
+                "SELECT tick, cursor FROM run_state WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if state is None:
+                raise ValueError("unknown run %r" % (run_id,))
+
+            clock = state["tick"]
+            cursor = state["cursor"]
+            if tick < clock:
+                raise LookupStale(
+                    "lookup at tick %d is stale: the run reached tick %d before it "
+                    "could be recorded" % (tick, clock)
+                )
+            if cursor < len(schedule_ticks):
+                next_tick = schedule_ticks[cursor]
+                if tick > next_tick:
+                    raise LookupStale(
+                        "lookup at tick %d is stale: the next unapplied delivery moved "
+                        "to tick %d" % (tick, next_tick)
+                    )
+
             existing = conn.execute(
                 """
                 SELECT outcome FROM run_actions

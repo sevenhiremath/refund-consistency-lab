@@ -5,7 +5,7 @@ from pathlib import Path
 from app.errors import LabError
 from app.sim.fixture import Fixture, load_fixture
 from app.sim.runner import Runner, RunReport
-from app.store import LookupRecord, StepConflict, StepOutcome, Store
+from app.store import LookupRecord, LookupStale, StepConflict, StepOutcome, Store
 
 
 def default_fixtures_dir() -> Path:
@@ -92,6 +92,13 @@ class LabService:
             )
         try:
             return self.runner.reconcile(run_id, refund_id, tick)
+        except LookupStale as exc:
+            raise LabError(
+                409,
+                str(exc),
+                "The run advanced while the provider was being asked. Reload the "
+                "page and reconcile again against the current state.",
+            ) from exc
         except ValueError as exc:
             raise LabError(
                 400,

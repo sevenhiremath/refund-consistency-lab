@@ -352,7 +352,7 @@ def test_attempt_id_reused_with_different_content_is_quarantined(store, changed)
     assert report.naive_total_paise == 30_000
     assert store.refund_states(RUN)["R2"]["status"] == "pending"
     finding = store.findings(RUN)[-1]
-    assert finding["finding_key"] == "attempt_conflict:a1"
+    assert finding["finding_key"].startswith("attempt_conflict:a1:")
     assert finding["kind"] == "attempt_identity_conflict"
     for value in changed.values():
         assert str(value) in finding["detail"]
@@ -379,9 +379,65 @@ def test_attempt_conflict_evidence_survives_reopening(store):
     reopened = Store(store.db_path)
 
     findings = reopened.findings(RUN)
-    assert [row["finding_key"] for row in findings] == ["attempt_conflict:a1"]
+    assert len(findings) == 1
+    assert findings[0]["finding_key"].startswith("attempt_conflict:a1:")
     detail = findings[0]["detail"]
     assert "E99" in detail and "failed" in detail and "35000" in detail
     assert "E8" in detail and "succeeded" in detail
     assert counts(store.db_path)[0] == 1
     assert reopened.refund_states(RUN)["R1"]["status"] == "succeeded"
+
+
+# -- D4: repeated conflicts under one attempt id keep separate evidence -----
+
+
+def test_repeated_attempt_conflicts_keep_each_claim(store):
+    store.admit(RUN, RefundIntent("R1", "pay_A", 30_000))
+    store.ingest(RUN, PROVIDER, delivery("a1", "E1", "R1", "succeeded"))
+
+    store.ingest(RUN, PROVIDER, delivery("a1", "E2", "R1", "failed", 31_000))
+    store.ingest(RUN, PROVIDER, delivery("a1", "E3", "R1", "pending", 32_000))
+
+    findings = store.findings(RUN)
+    assert len(findings) == 2
+    assert all(row["kind"] == "attempt_identity_conflict" for row in findings)
+
+    by_event = {row["event_id"]: row for row in findings}
+    assert set(by_event) == {"E2", "E3"}
+    # Each finding describes the claim its own event id names.
+    assert "E2" in by_event["E2"]["detail"]
+    assert "E3" in by_event["E3"]["detail"]
+    assert "E3" not in by_event["E2"]["detail"]
+    assert "E2" not in by_event["E3"]["detail"]
+
+    # The original delivery is untouched and no conflicting claim got in.
+    assert counts(store.db_path)[0] == 1
+    assert store.refund_states(RUN)["R1"]["status"] == "succeeded"
+    assert store.refund_states(RUN)["R1"]["confirmed_paise"] == 30_000
+    assert store.report(RUN, "pay_A").naive_total_paise == 30_000
+
+
+def test_repeating_an_identical_conflict_is_idempotent(store):
+    store.admit(RUN, RefundIntent("R1", "pay_A", 30_000))
+    store.ingest(RUN, PROVIDER, delivery("a1", "E1", "R1", "succeeded"))
+
+    first = store.ingest(RUN, PROVIDER, delivery("a1", "E2", "R1", "failed", 31_000))
+    second = store.ingest(RUN, PROVIDER, delivery("a1", "E2", "R1", "failed", 31_000))
+
+    assert first.outcome == second.outcome == "attempt_conflict"
+    assert len(store.findings(RUN)) == 1
+    assert counts(store.db_path)[0] == 1
+
+
+def test_repeated_attempt_conflicts_survive_reopening(store):
+    store.admit(RUN, RefundIntent("R1", "pay_A", 30_000))
+    store.ingest(RUN, PROVIDER, delivery("a1", "E1", "R1", "succeeded"))
+    store.ingest(RUN, PROVIDER, delivery("a1", "E2", "R1", "failed", 31_000))
+    store.ingest(RUN, PROVIDER, delivery("a1", "E3", "R1", "pending", 32_000))
+
+    reopened = Store(store.db_path)
+
+    keys = [row["finding_key"] for row in reopened.findings(RUN)]
+    assert len(keys) == 2
+    assert len(set(keys)) == 2
+    assert counts(store.db_path)[0] == 1

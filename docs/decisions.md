@@ -231,7 +231,27 @@ cannot reach either projection and no total moves.
 
 The response is a 200 with an `attempt_conflict` outcome, not a 409, because a reused
 event id with a different payload is already recorded rather than rejected. 409 stays
-for a cursor conflict, where the caller can retry against fresh state.
+for a conflict with the run's current state, where the caller can retry against fresh
+state.
+
+Each distinct claim gets its own finding key, built from the attempt id and a digest of
+the claim. One key per attempt id was wrong: a second conflict overwrote the first
+finding's detail while the row's event id still named the earlier claim, so the
+evidence contradicted itself. Repeating the same claim produces the same key, which
+keeps the retry idempotent.
+
+## A lookup is validated again inside the write transaction
+
+Chosen over trusting the check made before the provider call.
+Why: the provider call must not hold the database lock, so the run can advance between
+the check and the write. That used to store an action whose tick was behind the run,
+leaving replay with a tick order it refuses. The recheck costs one row read inside a
+transaction that is already open.
+Cost: two places express the same rule, so they must stay in agreement. A stale result
+is discarded after the provider was already asked, which wastes that query but never
+stores anything. Repeated conflict findings also mean the finding count grows with the
+number of distinct bad claims, which is intended but means the count is not bounded by
+the number of attempts.
 
 ## The digest carries the build
 

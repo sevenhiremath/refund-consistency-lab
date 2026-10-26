@@ -276,15 +276,26 @@ The JSON API mirrors the page:
 
 Errors return an HTML page for routes and JSON for `/api`, with the same status code.
 Unknown runs and scenarios are 404, a stale cursor is 409, an invalid lookup including
-one past the next delivery is 400.
+one past the next delivery is 400, and a lookup that goes stale while the provider is
+being asked is 409.
 
 A step response carries an `outcome`. Repeating a delivery attempt with identical
 content returns the recorded outcome with `applied: false`. Reusing an attempt id with
 different content returns `attempt_conflict`: the original row is untouched, neither
 projection moves, and the attempted payload is kept as finding evidence. That is a 200
 rather than a 409, matching how a reused event id with a different payload is already
-handled. A 409 is reserved for a cursor conflict, where retrying with fresh state is
-the right advice.
+handled. A 409 is reserved for a conflict with the run's current state, where retrying
+against fresh state is the right advice.
+
+Each distinct conflicting claim gets its own finding, keyed by the attempt id and a
+digest of the claim, so a second and third conflict do not overwrite the first.
+Repeating an identical conflicting claim is idempotent.
+
+A lookup result is used only if the run has not moved past it. The check runs twice:
+before asking the provider, and again inside the write transaction that records the
+result. The provider call happens outside the database lock, so a delivery can be
+applied in between; when that happens the result is stale, nothing is written, and the
+caller gets a 409.
 
 The frontend is server-rendered HTML with a small amount of JavaScript that disables
 a submitted button and shows a busy note. A separate frontend framework would give
