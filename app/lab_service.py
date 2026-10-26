@@ -22,9 +22,11 @@ class LabService:
     format, they do not calculate.
     """
 
-    def __init__(self, store: Store, fixtures_dir: Path | None = None) -> None:
+    def __init__(
+        self, store: Store, fixtures_dir: Path | None = None, commit: str | None = None
+    ) -> None:
         self.store = store
-        self.runner = Runner(store)
+        self.runner = Runner(store, commit)
         self.fixtures_dir = Path(fixtures_dir) if fixtures_dir else default_fixtures_dir()
         self._fixtures: dict[str, Fixture] = {}
         for path in sorted(self.fixtures_dir.glob("*.json")):
@@ -94,12 +96,21 @@ class LabService:
             raise LabError(
                 400,
                 str(exc),
-                "A lookup can only ask about the current tick or a later one.",
+                "A lookup can ask about the current tick or later, but not past the "
+                "next scheduled delivery. Step the run first, or use a smaller tick.",
             ) from exc
 
     def replay(self, run_id: str) -> str:
         self._require_run(run_id)
-        return self.runner.replay(run_id)
+        try:
+            return self.runner.replay(run_id)
+        except ValueError as exc:
+            raise LabError(
+                400,
+                "this run cannot be replayed: %s" % exc,
+                "Runs created before the lookup tick rule was tightened may not "
+                "replay. Start the scenario again.",
+            ) from exc
 
     def _fixture(self, name: str) -> Fixture:
         fixture = self._fixtures.get(name)

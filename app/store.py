@@ -349,15 +349,52 @@ class Store:
 
         # Transport retry: the same attempt id is the same delivery. Return what was
         # recorded and change nothing, so the naive side does not count it twice.
+        # The claim is compared first: an attempt id reused with different content is
+        # not a retry, and treating it as one would drop evidence silently.
         recorded = conn.execute(
             """
-            SELECT outcome FROM deliveries
+            SELECT attempt_id, event_id, refund_id, status, amount_paise, currency,
+                   outcome
+            FROM deliveries
             WHERE run_id = ? AND provider = ? AND attempt_id = ?
             """,
             (run_id, provider, delivery.attempt_id),
         ).fetchone()
         if recorded is not None:
-            return IngestResult(observation.event_id, recorded["outcome"], recorded=False)
+            stored_claim = (
+                recorded["event_id"],
+                recorded["refund_id"],
+                recorded["status"],
+                recorded["amount_paise"],
+                recorded["currency"],
+            )
+            incoming_claim = (
+                observation.event_id,
+                observation.refund_id,
+                observation.status,
+                observation.amount_paise,
+                observation.currency,
+            )
+            if incoming_claim == stored_claim:
+                return IngestResult(
+                    observation.event_id, recorded["outcome"], recorded=False
+                )
+            # Same attempt id, different claim. The original row is left untouched,
+            # the incoming claim is kept as finding evidence, and neither projection
+            # sees it, so no total moves.
+            self._add_finding(
+                conn,
+                run_id,
+                "attempt_conflict:%s" % delivery.attempt_id,
+                "attempt_identity_conflict",
+                refund_id=observation.refund_id,
+                event_id=observation.event_id,
+                detail="attempt id reused with a different claim: stored %r, received %r"
+                % (stored_claim, incoming_claim),
+            )
+            return IngestResult(
+                observation.event_id, "attempt_conflict", recorded=True
+            )
 
         accepted_row = conn.execute(
             """
@@ -825,6 +862,21 @@ class Store:
                 (run_id,),
             ).fetchall()
             return tuple(row["finding_key"] for row in rows)
+        finally:
+            conn.close()
+
+    def findings(self, run_id: str) -> tuple[dict, ...]:
+        """Full finding rows, including the retained evidence in detail."""
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT finding_key, kind, refund_id, event_id, detail, created_at
+                FROM findings WHERE run_id = ? ORDER BY finding_key
+                """,
+                (run_id,),
+            ).fetchall()
+            return tuple(dict(row) for row in rows)
         finally:
             conn.close()
 

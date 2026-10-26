@@ -236,3 +236,136 @@ def test_intentional_conflict_reaches_the_reducers(store):
     assert refund_of(report, "R2")["protected_status"] == "review"
     assert report.body["comparison"]["protected_confirmed_paise"] == 0
     assert "event_conflict:E8" in report.body["evidence"]["findings"]
+
+
+# -- D1: a lookup may not move the clock past an unprocessed delivery -------
+
+
+def test_future_lookup_is_rejected_and_the_run_still_completes(store):
+    runner, run_id = start(store, "pending_after_success")
+
+    # Next scheduled delivery is at tick 2. A query at tick 10 would move the clock
+    # past it, so it is refused before anything is written.
+    with pytest.raises(ValueError, match="past the next scheduled delivery"):
+        runner.reconcile(run_id, "R1", 10)
+
+    report = runner.report(run_id)
+    assert report.body["actions"] == []
+    assert report.body["evidence"]["findings"] == []
+    assert report.body["progress"]["tick"] == 0
+    assert report.body["progress"]["cursor"] == 0
+
+    # The run is still usable.
+    assert runner.step(run_id, 0).event_id == "E8"
+    done = runner.run_to_end(run_id, 1)
+    assert done.body["progress"]["finished"] is True
+    assert done.body["comparison"]["refunds"][0]["protected_status"] == "succeeded"
+
+
+def test_lookup_at_the_next_delivery_tick_is_allowed(store):
+    runner, run_id = start(store, "pending_after_success")
+
+    record = runner.reconcile(run_id, "R1", 2)
+    assert record.recorded is True
+
+    # The clock is now level with the delivery, which is not backwards.
+    assert runner.report(run_id).body["progress"]["tick"] == 2
+    assert runner.step(run_id, 0).event_id == "E8"
+    assert runner.run_to_end(run_id, 1).body["progress"]["finished"] is True
+
+
+def test_future_lookup_is_allowed_once_nothing_is_left_to_deliver(store):
+    runner, run_id = start(store, "pending_after_success")
+    runner.run_to_end(run_id, 0)
+
+    record = runner.reconcile(run_id, "R1", 99)
+
+    assert record.recorded is True
+    assert runner.report(run_id).body["progress"]["tick"] == 99
+
+
+def test_api_rejects_a_future_lookup_then_steps(client):
+    run_id = client.post("/api/runs", json={"scenario": "pending_after_success"}).json()["run_id"]
+
+    rejected = client.post(
+        "/api/runs/%s/reconcile" % run_id, json={"refund_id": "R1", "tick": 10}
+    )
+    assert rejected.status_code == 400
+    body = rejected.json()
+    assert "next scheduled delivery" in body["error"]
+    assert body["hint"]
+
+    report = client.get("/api/runs/%s" % run_id).json()
+    assert report["actions"] == []
+    assert report["progress"]["tick"] == 0
+
+    stepped = client.post("/api/runs/%s/step" % run_id, json={"expected_cursor": 0})
+    assert stepped.status_code == 200
+    assert stepped.json()["event_id"] == "E8"
+
+    finished = client.post("/api/runs/%s/run" % run_id, json={"expected_cursor": 1})
+    assert finished.status_code == 200
+    assert finished.json()["progress"]["finished"] is True
+
+
+def test_page_rejects_a_future_lookup_then_steps(client):
+    location = client.post(
+        "/runs", data={"scenario": "pending_after_success"}, follow_redirects=False
+    ).headers["location"]
+
+    rejected = client.post(
+        location + "/reconcile", data={"refund_id": "R1", "tick": "10"}
+    )
+    assert rejected.status_code == 400
+    assert "next scheduled delivery" in rejected.text
+
+    stepped = client.post(
+        location + "/step", data={"expected_cursor": "0"}, follow_redirects=False
+    )
+    assert stepped.status_code == 303
+
+    finished = client.post(
+        location + "/run", data={"expected_cursor": "1"}, follow_redirects=True
+    )
+    assert finished.status_code == 200
+    assert "succeeded" in finished.text
+
+
+# -- D3: the digest carries the build identity ----------------------------
+
+
+def test_report_carries_the_build_commit(store):
+    runner = Runner(store, "abc123")
+    run_id = runner.start(load_fixture(FIXTURES / "healthy.json"))
+
+    engine = runner.report(run_id).body["engine"]
+    assert engine["commit"] == "abc123"
+    assert engine["commit_known"] is True
+
+
+def test_unknown_commit_is_marked_unknown(store):
+    runner = Runner(store, "unknown")
+    run_id = runner.start(load_fixture(FIXTURES / "healthy.json"))
+
+    engine = runner.report(run_id).body["engine"]
+    assert engine["commit"] == "unknown"
+    assert engine["commit_known"] is False
+
+
+def test_same_build_and_actions_give_the_same_digest(store):
+    first = Runner(store, "build-a").start(load_fixture(FIXTURES / "duplicate_success.json"))
+    second = Runner(store, "build-a").start(load_fixture(FIXTURES / "duplicate_success.json"))
+
+    a = Runner(store, "build-a").report(first)
+    b = Runner(store, "build-a").report(second)
+    assert a.digest == b.digest
+
+
+def test_a_different_build_changes_the_digest(store):
+    run_id = Runner(store, "build-a").start(load_fixture(FIXTURES / "duplicate_success.json"))
+
+    before = Runner(store, "build-a").report(run_id)
+    after = Runner(store, "build-b").report(run_id)
+
+    assert before.body["comparison"] == after.body["comparison"]
+    assert before.digest != after.digest

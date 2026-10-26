@@ -5,7 +5,7 @@ import json
 import uuid
 from dataclasses import dataclass
 
-from app.config import VERSION
+from app.config import VERSION, resolve_source_commit
 from app.domain.model import Delivery
 from app.sim.fixture import Fixture, FixtureError, parse_fixture
 from app.sim.provider import ProviderView
@@ -35,8 +35,9 @@ class Runner:
     the processors can read them.
     """
 
-    def __init__(self, store: Store) -> None:
+    def __init__(self, store: Store, commit: str | None = None) -> None:
         self.store = store
+        self.commit = commit
 
     def start(self, fixture: Fixture) -> str:
         run_id = "run_" + uuid.uuid4().hex[:12]
@@ -73,14 +74,31 @@ class Runner:
 
         The tick defaults to the run clock. A lookup may not query the past, so the
         logical clock only moves forward.
+
+        A lookup also may not move the clock past a scheduled delivery that has not
+        been applied yet. Applying that delivery would then look like a step
+        backwards in time and the run could never advance. Ticks up to and including
+        the next delivery tick are fine, and once nothing is left to deliver any
+        later tick works. The check runs before anything is written, so a rejected
+        lookup leaves no observation, action, finding or clock change behind.
         """
-        fixture, _ = self._load(run_id)
+        fixture, schedule = self._load(run_id)
         state = self.store.run_state(run_id)
         tick = state["tick"] if at_tick is None else at_tick
         if tick < state["tick"]:
             raise ValueError(
                 "cannot look up tick %d from a run at tick %d" % (tick, state["tick"])
             )
+
+        cursor = state["cursor"]
+        if cursor < len(schedule):
+            next_tick = schedule[cursor][0]
+            if tick > next_tick:
+                raise ValueError(
+                    "a lookup at tick %d would move the clock past the next scheduled "
+                    "delivery at tick %d; use a tick up to %d or step first"
+                    % (tick, next_tick, next_tick)
+                )
 
         result = ProviderView(fixture).lookup(refund_id, tick)
         return self.store.record_lookup(
@@ -112,8 +130,13 @@ class Runner:
         comparison = self.store.report(run_id, fixture.payment.payment_id)
         actions = self.store.actions(run_id)
 
+        commit = self.commit if self.commit is not None else resolve_source_commit()
         body = {
-            "engine": {"version": VERSION},
+            "engine": {
+                "version": VERSION,
+                "commit": commit,
+                "commit_known": commit != "unknown",
+            },
             "fixture": {
                 "name": fixture.name,
                 "version": fixture.version,

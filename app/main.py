@@ -36,7 +36,7 @@ def create_app(settings: Settings | None = None, fixtures_dir: Path | None = Non
         try:
             store = Store(resolved.db_path)
             store.initialize()
-            application.state.lab = LabService(store, fixtures_dir)
+            application.state.lab = LabService(store, fixtures_dir, resolved.git_sha)
             application.state.lab_error = None
         except (sqlite3.Error, OSError, ValueError) as exc:
             # /health still reports the database problem, and pages explain it,

@@ -21,11 +21,11 @@ class Settings:
     def from_env(cls) -> "Settings":
         return cls(
             db_path=Path(os.environ.get("LAB_DB_PATH", str(DEFAULT_DB_PATH))),
-            git_sha=_runtime_sha(),
+            git_sha=resolve_source_commit(),
         )
 
 
-def _runtime_sha() -> str:
+def resolve_source_commit() -> str:
     """Identify the running source commit.
 
     LAB_GIT_SHA is baked at image build time for hosts that do not tell us. Render

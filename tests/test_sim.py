@@ -206,3 +206,35 @@ def test_cli_prints_the_report(capsys, tmp_path):
     assert payload["comparison"]["protected_confirmed_paise"] == 30_000
     assert payload["comparison"]["naive_total_paise"] == 90_000
     assert payload["digest"]
+
+
+def test_run_to_end_rolls_back_every_delivery_then_retry_applies_them_once(store, monkeypatch):
+    """A failure part way through a batch leaves the whole call unapplied."""
+    runner = Runner(store)
+    run_id = runner.start(load_fixture(FIXTURES / "duplicate_success.json"))
+
+    original = store._apply_projections
+    calls = {"n": 0}
+
+    def fail_second(conn, inner_run_id):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("injected failure on the second delivery")
+        return original(conn, inner_run_id)
+
+    monkeypatch.setattr(store, "_apply_projections", fail_second)
+    with pytest.raises(RuntimeError):
+        runner.run_to_end(run_id, 0)
+
+    # Nothing from the batch survived, and every delivery is available again.
+    assert store.run_state(run_id)["cursor"] == 0
+    assert store.actions(run_id) == ()
+    assert store.refund_states(run_id)["R1"]["status"] == "pending"
+
+    monkeypatch.undo()
+    report = runner.run_to_end(run_id, 0)
+
+    assert store.run_state(run_id)["cursor"] == 3
+    assert len(store.actions(run_id)) == 3
+    assert report.body["comparison"]["protected_confirmed_paise"] == 30_000
+    assert report.body["comparison"]["naive_total_paise"] == 90_000

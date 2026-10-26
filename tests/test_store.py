@@ -296,3 +296,92 @@ def test_saved_state_survives_a_reopened_database(store):
     assert state["status"] == "succeeded"
     assert state["confirmed_paise"] == 30_000
     assert reopened.report(RUN, "pay_A").protected_confirmed_paise == 30_000
+
+
+# -- D2: an attempt id reused with different content ----------------------
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"event_id": "E9"},
+        {"refund_id": "R2"},
+        {"status": "failed"},
+        {"amount_paise": 35_000},
+        {"currency": "EUR"},
+    ],
+)
+def test_attempt_id_reused_with_different_content_is_quarantined(store, changed):
+    store.admit(RUN, RefundIntent("R1", "pay_A", 30_000))
+    store.admit(RUN, RefundIntent("R2", "pay_A", 20_000))
+    store.ingest(RUN, PROVIDER, delivery("a1", "E8", "R1", "succeeded"))
+
+    original = {"event_id": "E8", "refund_id": "R1", "status": "succeeded", "amount_paise": 30_000}
+    claim = {**original, **changed}
+    reused = store.ingest(
+        RUN,
+        PROVIDER,
+        Delivery(
+            "a1",
+            Observation(
+                claim["event_id"],
+                claim["refund_id"],
+                claim["status"],
+                claim["amount_paise"],
+                claim.get("currency", "INR"),
+            ),
+        ),
+    )
+
+    assert reused.outcome == "attempt_conflict"
+    assert reused.recorded is True
+
+    # The original row is untouched and the conflicting claim is not a delivery.
+    assert counts(store.db_path)[0] == 1
+    conn = sqlite3.connect(store.db_path)
+    try:
+        row = conn.execute(
+            "SELECT event_id, refund_id, status, amount_paise, currency FROM deliveries"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row == ("E8", "R1", "succeeded", 30_000, "INR")
+
+    # No total moved, and the attempted payload is retained as evidence.
+    report = store.report(RUN, "pay_A")
+    assert report.naive_total_paise == 30_000
+    assert store.refund_states(RUN)["R2"]["status"] == "pending"
+    finding = store.findings(RUN)[-1]
+    assert finding["finding_key"] == "attempt_conflict:a1"
+    assert finding["kind"] == "attempt_identity_conflict"
+    for value in changed.values():
+        assert str(value) in finding["detail"]
+
+
+def test_identical_retry_stays_harmless(store):
+    store.admit(RUN, RefundIntent("R1", "pay_A", 30_000))
+    first = store.ingest(RUN, PROVIDER, delivery("a1", "E8", "R1", "succeeded"))
+
+    again = store.ingest(RUN, PROVIDER, delivery("a1", "E8", "R1", "succeeded"))
+
+    assert again.recorded is False
+    assert again.outcome == first.outcome
+    assert counts(store.db_path)[0] == 1
+    assert store.findings(RUN) == ()
+    assert store.report(RUN, "pay_A").naive_total_paise == 30_000
+
+
+def test_attempt_conflict_evidence_survives_reopening(store):
+    store.admit(RUN, RefundIntent("R1", "pay_A", 30_000))
+    store.ingest(RUN, PROVIDER, delivery("a1", "E8", "R1", "succeeded"))
+    store.ingest(RUN, PROVIDER, delivery("a1", "E99", "R1", "failed", 35_000))
+
+    reopened = Store(store.db_path)
+
+    findings = reopened.findings(RUN)
+    assert [row["finding_key"] for row in findings] == ["attempt_conflict:a1"]
+    detail = findings[0]["detail"]
+    assert "E99" in detail and "failed" in detail and "35000" in detail
+    assert "E8" in detail and "succeeded" in detail
+    assert counts(store.db_path)[0] == 1
+    assert reopened.refund_states(RUN)["R1"]["status"] == "succeeded"
