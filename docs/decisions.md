@@ -97,12 +97,33 @@ accepted-only rows cannot do that.
 
 ## Both projections commit with the delivery
 
-Chosen over the split commit boundary described in the plan.
-Why: the split needs the simulator cursor which does not exist yet. Writing both
-projections in the ingest transaction is what makes the rollback test meaningful.
-Cost: the naive side is atomic for now so the torn write cannot be demonstrated. M4
-has to split the boundary when it adds the cursor, and the naive side then has to
-keep its own transaction.
+Every processed delivery is one BEGIN IMMEDIATE transaction: the delivery row, any
+findings, the protected projection and the naive projection. The simulator harness does
+not own a separate transaction, and neither processor writes on its own connection.
+Why: the comparison is about processing rules, not durability, and one boundary keeps
+both sides looking at exactly the same evidence.
+Cost: the naive side cannot be made to tear, so the "credit written, status stale"
+failure is described in this design but not demonstrated by the lab.
+
+## Transaction boundaries
+
+| Operation | Scope |
+|---|---|
+| admission | one transaction for the cap check and the insert |
+| a single step | one transaction for that one delivery and the cursor |
+| run to end | one transaction for every remaining delivery |
+| reconcile | one transaction for the lookup evidence, its finding, the action row and the clock |
+
+A step and run to end use different scopes. A failed step loses exactly one delivery
+and leaves the cursor where it was, so the same step can be retried. A failed run to
+end loses every delivery in that call, because the loop and each cursor update share
+one transaction; nothing is half applied, but nothing from that call survives either.
+
+SQLite allows one writer, so a step holds the write lock for one delivery while a run
+to end holds it for the whole remaining schedule. Readers in WAL mode are not blocked,
+so page loads keep working, but a second writer waits or hits the busy timeout. At
+fixture size the schedule is a handful of deliveries, which is why the simpler single
+transaction is kept instead of committing per delivery.
 
 ## Transport retry is gated by the attempt id
 
@@ -193,13 +214,17 @@ both orders. Only the status flips. The stronger fact is that naive then contrad
 itself by reporting failed while holding 300. The protected side reports review in
 both orders.
 
-### Naive writes need their own commit boundary
+### Naive writes never got their own commit boundary
 
-The plan first committed the naive projection inside the same transaction as
-everything else. That made the naive side durable and hid the torn write the lab is
-meant to show. The harness now commits its own attempt row and cursor first and each
-engine owns its own transaction. The same fault is injected at the same point for
-both engines. The only difference is whether the two writes were one unit.
+The plan called for the harness to commit its attempt row and cursor first, with each
+engine writing in its own transaction, so the naive side could be shown tearing. That
+was never built. M3 deferred it until the simulator cursor existed, M4 added the
+cursor without splitting the boundary, and the ingest transaction still covers both
+projections. An earlier version of this entry said the split had happened. It had not.
+
+What it would take: a second connection for the naive projection, two statements
+without an explicit transaction, and a fault injected between them. Until then the
+torn write is a documented limit rather than a demonstrated behavior.
 
 ### FastAPI validation claim
 

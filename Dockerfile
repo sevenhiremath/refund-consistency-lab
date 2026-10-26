@@ -12,6 +12,8 @@ WORKDIR /srv
 
 COPY --chown=app:app pyproject.toml README.md ./
 COPY --chown=app:app app ./app
+# The scenario fixtures ship with the image. Without them the picker is empty.
+COPY --chown=app:app fixtures ./fixtures
 
 # Build-time SHA so /health can identify the running commit without git in the image.
 ARG GIT_SHA=unknown
