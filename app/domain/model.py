@@ -79,14 +79,21 @@ class Observation:
 
 @dataclass(frozen=True)
 class Delivery:
-    """One HTTP delivery of one event. Retries are new attempts of the same event."""
+    """One transport delivery of one event. Retries are new attempts of the same event.
+
+    origin separates a notification the provider pushed from evidence we pulled with
+    a lookup. The naive baseline is webhook-only, so it must never see the second.
+    """
 
     attempt_id: str
     observation: Observation
+    origin: str = "webhook"
 
     def __post_init__(self) -> None:
         if not self.attempt_id:
             raise ValueError("attempt_id is required")
+        if self.origin not in ("webhook", "lookup"):
+            raise ValueError("unknown delivery origin %r" % (self.origin,))
 
     @property
     def event_id(self) -> str:

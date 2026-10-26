@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from app.config import VERSION
 from app.domain.model import Delivery
 from app.sim.fixture import Fixture, FixtureError, parse_fixture
-from app.store import StepOutcome, Store
+from app.sim.provider import ProviderView
+from app.store import LookupRecord, StepOutcome, Store
 
 
 @dataclass(frozen=True)
@@ -65,16 +66,51 @@ class Runner:
         self.store.apply_remaining(run_id, fixture.provider, expected_cursor, schedule)
         return self.report(run_id)
 
-    def replay(self, run_id: str) -> str:
-        """Start a new run from the fixture text stored with an existing run."""
+    def reconcile(
+        self, run_id: str, refund_id: str, at_tick: int | None = None
+    ) -> LookupRecord:
+        """Ask the provider about one refund at a logical tick.
+
+        The tick defaults to the run clock. A lookup may not query the past, so the
+        logical clock only moves forward.
+        """
         fixture, _ = self._load(run_id)
-        return self.start(fixture)
+        state = self.store.run_state(run_id)
+        tick = state["tick"] if at_tick is None else at_tick
+        if tick < state["tick"]:
+            raise ValueError(
+                "cannot look up tick %d from a run at tick %d" % (tick, state["tick"])
+            )
+
+        result = ProviderView(fixture).lookup(refund_id, tick)
+        return self.store.record_lookup(
+            run_id, fixture.provider, refund_id, tick, result.outcome, result.observation
+        )
+
+    def replay(self, run_id: str) -> str:
+        """Replay the stored fixture and action log into a new run.
+
+        Deliveries and lookups are replayed in their original order with their
+        original ticks, so the digest is comparable.
+        """
+        fixture, schedule = self._load(run_id)
+        actions = self.store.actions(run_id)
+
+        new_run = self.start(fixture)
+        for action in actions:
+            if action["kind"] == "delivery":
+                self.store.apply_step(
+                    new_run, fixture.provider, action["cursor"], schedule
+                )
+            else:
+                self.reconcile(new_run, action["subject"], action["tick"])
+        return new_run
 
     def report(self, run_id: str) -> RunReport:
         fixture, schedule = self._load(run_id)
         state = self.store.run_state(run_id)
         comparison = self.store.report(run_id, fixture.payment.payment_id)
-        steps = self.store.steps(run_id)
+        actions = self.store.actions(run_id)
 
         body = {
             "engine": {"version": VERSION},
@@ -110,7 +146,7 @@ class Runner:
                 "tick": state["tick"],
                 "finished": state["cursor"] >= len(schedule),
             },
-            "steps": [dict(step) for step in steps],
+            "actions": [dict(action) for action in actions],
             "comparison": {
                 "captured_paise": comparison.captured_paise,
                 "admitted_paise": comparison.admitted_paise,

@@ -1,0 +1,20 @@
+{
+  "fixture": "identity_conflict_refunds",
+  "version": 1,
+  "provider": "psp_a",
+  "notes": "One event id delivered twice with different claims. The second claim is deliberate, not a typo.",
+  "payment": {"payment_id": "pay_A", "captured_paise": 100000},
+  "refunds": [
+    {"refund_id": "R1", "amount_paise": 30000},
+    {"refund_id": "R2", "amount_paise": 20000}
+  ],
+  "events": [
+    {"event_id": "E8", "refund_id": "R1", "status": "succeeded", "amount_paise": 30000, "at_tick": 1, "delivered": true}
+  ],
+  "deliveries": [
+    {"at_tick": 2, "attempt_id": "a1", "event_id": "E8"},
+    {"at_tick": 3, "attempt_id": "a2", "event_id": "E8", "intentional_conflict": true, "payload": {"refund_id": "R2", "amount_paise": 20000}}
+  ],
+  "lookup_unavailable_ticks": [],
+  "end_tick": 4
+}

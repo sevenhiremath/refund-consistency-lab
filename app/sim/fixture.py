@@ -49,6 +49,7 @@ class Fixture:
     events: tuple[ProviderEvent, ...]
     schedule: tuple[ScheduledDelivery, ...]
     end_tick: int
+    lookup_unavailable_ticks: tuple[int, ...]
     sha256: str
     text: str
 
@@ -129,6 +130,7 @@ def parse_fixture(text: str) -> Fixture:
         raise FixtureError("every event must reference a declared refund")
 
     by_event = {event.event_id: event for event in events}
+    refund_ids = {refund.refund_id for refund in refunds}
 
     scheduled = []
     for index, entry in enumerate(_list(data, "deliveries")):
@@ -143,17 +145,20 @@ def parse_fixture(text: str) -> Fixture:
                 "event %s cannot be delivered at tick %d before it happens at %d"
                 % (event_id, at_tick, event.at_tick)
             )
+        attempt_id = _text(item, "attempt_id")
+        claim = _claim_for(item, event, refund_ids)
         scheduled.append(
             ScheduledDelivery(
                 at_tick=at_tick,
-                attempt_id=_text(item, "attempt_id"),
+                attempt_id=attempt_id,
                 delivery=Delivery(
-                    _text(item, "attempt_id"),
+                    attempt_id,
                     Observation(
                         event.event_id,
-                        event.refund_id,
-                        event.status,
-                        event.amount_paise,
+                        claim["refund_id"],
+                        claim["status"],
+                        claim["amount_paise"],
+                        claim["currency"],
                     ),
                 ),
             )
@@ -195,9 +200,80 @@ def parse_fixture(text: str) -> Fixture:
         events=tuple(events),
         schedule=schedule,
         end_tick=end_tick,
+        lookup_unavailable_ticks=_int_list(data, "lookup_unavailable_ticks"),
         sha256=digest,
         text=text,
     )
+
+
+def _claim_for(
+    item: dict[str, Any], event: ProviderEvent, refund_ids: set[str]
+) -> dict[str, Any]:
+    """Resolve what a delivery claims, and require a mismatch to be deliberate.
+
+    A delivery is what the provider sent. It may contradict the provider's own
+    record, but only when the fixture says so, so a typo cannot silently invent a
+    conflict.
+    """
+    claim: dict[str, Any] = {
+        "refund_id": event.refund_id,
+        "status": event.status,
+        "amount_paise": event.amount_paise,
+        "currency": "INR",
+    }
+
+    payload = item.get("payload")
+    if payload is not None:
+        if not isinstance(payload, dict):
+            raise FixtureError("delivery payload must be an object")
+        unknown = set(payload) - set(claim)
+        if unknown:
+            raise FixtureError(
+                "delivery payload has unknown keys %s" % sorted(unknown)
+            )
+        if "refund_id" in payload:
+            claim["refund_id"] = _text(payload, "refund_id")
+            if claim["refund_id"] not in refund_ids:
+                raise FixtureError(
+                    "payload claims undeclared refund %r" % (claim["refund_id"],)
+                )
+        if "status" in payload:
+            claim["status"] = _text(payload, "status")
+            if claim["status"] not in PROVIDER_STATUSES:
+                raise FixtureError("unknown provider status %r" % (claim["status"],))
+        if "amount_paise" in payload:
+            claim["amount_paise"] = _int(payload, "amount_paise", minimum=1)
+        if "currency" in payload:
+            claim["currency"] = _text(payload, "currency")
+
+    matches = (
+        claim["refund_id"] == event.refund_id
+        and claim["status"] == event.status
+        and claim["amount_paise"] == event.amount_paise
+        and claim["currency"] == "INR"
+    )
+
+    intentional = item.get("intentional_conflict", False)
+    if not isinstance(intentional, bool):
+        raise FixtureError("intentional_conflict must be a boolean")
+    if not matches and not intentional:
+        raise FixtureError(
+            "delivery of %s does not match its provider event; set "
+            "intentional_conflict to allow a contradictory claim" % (event.event_id,)
+        )
+    return claim
+
+
+def _int_list(data: dict[str, Any], key: str) -> tuple[int, ...]:
+    value = data.get(key, [])
+    if not isinstance(value, list):
+        raise FixtureError("%s must be a list" % key)
+    ticks = []
+    for entry in value:
+        if isinstance(entry, bool) or not isinstance(entry, int) or entry < 0:
+            raise FixtureError("%s must contain non-negative integers" % key)
+        ticks.append(entry)
+    return tuple(sorted(set(ticks)))
 
 
 def _text(data: dict[str, Any], key: str) -> str:

@@ -1,0 +1,14 @@
+{
+  "fixture": "lookup_unavailable",
+  "version": 1,
+  "provider": "psp_a",
+  "notes": "The notification was dropped and the provider does not answer the lookup. The refund must stay unresolved.",
+  "payment": {"payment_id": "pay_A", "captured_paise": 100000},
+  "refunds": [{"refund_id": "R1", "amount_paise": 30000}],
+  "events": [
+    {"event_id": "E9", "refund_id": "R1", "status": "succeeded", "amount_paise": 30000, "at_tick": 2, "delivered": false}
+  ],
+  "deliveries": [],
+  "lookup_unavailable_ticks": [3],
+  "end_tick": 5
+}

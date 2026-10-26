@@ -61,7 +61,7 @@ def test_dropped_event_never_reaches_a_processor(store):
 
     assert report.body["provider"]["dropped"] == ["E9"]
     assert report.body["progress"]["finished"] is True
-    assert report.body["steps"] == []
+    assert report.body["actions"] == []
     assert report.body["comparison"]["protected_confirmed_paise"] == 0
     assert report.body["comparison"]["naive_total_paise"] == 0
 
@@ -119,13 +119,27 @@ def test_replay_makes_a_new_run_with_the_same_digest(store):
     runner, run_id, original = run_fixture(store, "partials_duplicate")
 
     replayed_run = runner.replay(run_id)
+    replayed = runner.report(replayed_run)
 
     assert replayed_run != run_id
-    assert store.run_state(replayed_run)["cursor"] == 0
-    assert store.steps(replayed_run) == ()
-
-    replayed = runner.run_to_end(replayed_run, 0)
     assert replayed.digest == original.digest
+    assert replayed.body["actions"] == original.body["actions"]
+    assert len(store.actions(replayed_run)) == len(store.actions(run_id))
+
+
+def test_stepping_and_running_to_end_give_the_same_digest(store):
+    runner = Runner(store)
+    fixture = load_fixture(FIXTURES / "duplicate_success.json")
+
+    stepped = runner.start(fixture)
+    for cursor in range(3):
+        runner.step(stepped, cursor)
+
+    together = runner.start(fixture)
+    runner.run_to_end(together, 0)
+
+    assert runner.report(stepped).digest == runner.report(together).digest
+    assert runner.report(stepped).body["actions"] == runner.report(together).body["actions"]
 
 
 def test_report_contains_inputs_and_decisions(store):
@@ -136,9 +150,9 @@ def test_report_contains_inputs_and_decisions(store):
     assert len(body["fixture"]["sha256"]) == 64
     assert body["inputs"]["payment"]["captured_paise"] == 100_000
     assert body["inputs"]["scheduled_deliveries"] == 2
-    assert [step["event_id"] for step in body["steps"]] == ["E8", "E7"]
-    assert [step["outcome"] for step in body["steps"]] == ["accepted", "accepted"]
-    assert [step["tick"] for step in body["steps"]] == [2, 3]
+    assert [action["event_id"] for action in body["actions"]] == ["E8", "E7"]
+    assert [action["outcome"] for action in body["actions"]] == ["accepted", "accepted"]
+    assert [action["tick"] for action in body["actions"]] == [2, 3]
     assert body["comparison"]["refunds"][0]["naive_status"] == "pending"
     assert body["comparison"]["refunds"][0]["naive_total_paise"] == 30_000
 

@@ -30,6 +30,10 @@ def run_naive(
     totals = {intent.refund_id: 0 for intent in intents}
 
     for delivery in deliveries:
+        if delivery.origin != "webhook":
+            # The baseline is webhook-only. A provider lookup is not a notification
+            # it would ever have received.
+            continue
         observation = delivery.observation
         if observation.refund_id not in status:
             # No local refund row to update; a webhook-only baseline drops it.

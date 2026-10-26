@@ -59,6 +59,7 @@ SCHEMA = (
         status TEXT NOT NULL CHECK (status IN ('pending', 'succeeded', 'failed')),
         amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
         currency TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'webhook' CHECK (source IN ('webhook', 'lookup')),
         accepted INTEGER NOT NULL CHECK (accepted IN (0, 1)),
         conflict INTEGER NOT NULL DEFAULT 0 CHECK (conflict IN (0, 1)),
         outcome TEXT NOT NULL,
@@ -116,21 +117,26 @@ SCHEMA = (
         run_id TEXT PRIMARY KEY,
         cursor INTEGER NOT NULL DEFAULT 0,
         tick INTEGER NOT NULL DEFAULT 0,
+        action_seq INTEGER NOT NULL DEFAULT 0,
         fixture_name TEXT NOT NULL DEFAULT '',
         fixture_sha TEXT NOT NULL DEFAULT '',
         fixture_text TEXT NOT NULL DEFAULT '',
         FOREIGN KEY (run_id) REFERENCES runs (run_id)
     )
     """,
+    # One ordered log for every logical action: a delivery or a provider lookup.
+    # Replay follows this order, so timing and sequence are both reproducible.
     """
-    CREATE TABLE IF NOT EXISTS steps (
+    CREATE TABLE IF NOT EXISTS run_actions (
         run_id TEXT NOT NULL,
-        cursor INTEGER NOT NULL,
+        seq INTEGER NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('delivery', 'lookup')),
         tick INTEGER NOT NULL,
-        attempt_id TEXT,
+        cursor INTEGER,
+        subject TEXT NOT NULL,
         event_id TEXT,
         outcome TEXT NOT NULL,
-        PRIMARY KEY (run_id, cursor),
+        PRIMARY KEY (run_id, seq),
         FOREIGN KEY (run_id) REFERENCES runs (run_id)
     )
     """,
@@ -175,6 +181,15 @@ class StepOutcome:
     outcome: str
     applied: bool
     next_cursor: int
+
+
+@dataclass(frozen=True)
+class LookupRecord:
+    refund_id: str
+    tick: int
+    outcome: str
+    recorded: bool
+    observation: Observation | None
 
 
 def _now() -> str:
@@ -401,8 +416,8 @@ class Store:
             """
             INSERT INTO deliveries (
                 run_id, provider, seq, attempt_id, event_id, refund_id,
-                status, amount_paise, currency, accepted, conflict, outcome, received_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                status, amount_paise, currency, source, accepted, conflict, outcome, received_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_id,
@@ -414,6 +429,7 @@ class Store:
                 observation.status,
                 observation.amount_paise,
                 observation.currency,
+                delivery.origin,
                 accepted,
                 conflict,
                 outcome,
@@ -522,15 +538,18 @@ class Store:
                 )
             if expected_cursor < cursor:
                 row = conn.execute(
-                    "SELECT * FROM steps WHERE run_id = ? AND cursor = ?",
+                    """
+                    SELECT subject, tick, event_id, outcome FROM run_actions
+                    WHERE run_id = ? AND kind = 'delivery' AND cursor = ?
+                    """,
                     (run_id, expected_cursor),
                 ).fetchone()
                 if row is None:
                     raise StepConflict("no recorded step at cursor %d" % expected_cursor)
                 return StepOutcome(
-                    cursor=row["cursor"],
+                    cursor=expected_cursor,
                     tick=row["tick"],
-                    attempt_id=row["attempt_id"],
+                    attempt_id=row["subject"],
                     event_id=row["event_id"],
                     outcome=row["outcome"],
                     applied=False,
@@ -592,20 +611,23 @@ class Store:
         schedule: Sequence[tuple[int, Delivery]],
     ) -> dict:
         tick, delivery = schedule[index]
+        state = conn.execute(
+            "SELECT tick FROM run_state WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        if tick < state["tick"]:
+            raise ValueError(
+                "delivery at tick %d is before the run clock %d" % (tick, state["tick"])
+            )
         result = self._ingest(conn, run_id, provider, delivery)
-        conn.execute(
-            """
-            INSERT INTO steps (run_id, cursor, tick, attempt_id, event_id, outcome)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                run_id,
-                index,
-                tick,
-                delivery.attempt_id,
-                delivery.observation.event_id,
-                result.outcome,
-            ),
+        self._add_action(
+            conn,
+            run_id,
+            kind="delivery",
+            tick=tick,
+            cursor=index,
+            subject=delivery.attempt_id,
+            event_id=delivery.observation.event_id,
+            outcome=result.outcome,
         )
         conn.execute(
             "UPDATE run_state SET cursor = ?, tick = ? WHERE run_id = ?",
@@ -618,6 +640,103 @@ class Store:
             "event_id": delivery.observation.event_id,
             "outcome": result.outcome,
         }
+
+    def _add_action(
+        self,
+        conn: sqlite3.Connection,
+        run_id: str,
+        *,
+        kind: str,
+        tick: int,
+        cursor: int | None,
+        subject: str,
+        event_id: str | None,
+        outcome: str,
+    ) -> None:
+        seq = conn.execute(
+            "SELECT action_seq FROM run_state WHERE run_id = ?", (run_id,)
+        ).fetchone()["action_seq"]
+        conn.execute(
+            """
+            INSERT INTO run_actions
+                (run_id, seq, kind, tick, cursor, subject, event_id, outcome)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (run_id, seq, kind, tick, cursor, subject, event_id, outcome),
+        )
+        conn.execute(
+            "UPDATE run_state SET action_seq = ? WHERE run_id = ?",
+            (seq + 1, run_id),
+        )
+
+    def record_lookup(
+        self,
+        run_id: str,
+        provider: str,
+        refund_id: str,
+        tick: int,
+        outcome: str,
+        observation: Observation | None,
+    ) -> LookupRecord:
+        """Record one provider query and its evidence.
+
+        A query at the same refund and tick is the same query. Repeating it returns
+        the recorded outcome and adds nothing, so pressing reconcile twice cannot
+        manufacture evidence.
+        """
+        with self._write() as conn:
+            existing = conn.execute(
+                """
+                SELECT outcome FROM run_actions
+                WHERE run_id = ? AND kind = 'lookup' AND subject = ? AND tick = ?
+                """,
+                (run_id, refund_id, tick),
+            ).fetchone()
+            if existing is not None:
+                return LookupRecord(
+                    refund_id, tick, existing["outcome"], False, observation
+                )
+
+            if observation is not None:
+                self._ingest(
+                    conn,
+                    run_id,
+                    provider,
+                    Delivery(
+                        "lookup:%s:%d" % (refund_id, tick),
+                        observation,
+                        origin="lookup",
+                    ),
+                )
+            else:
+                # No evidence, so no observation. The refund keeps its last known
+                # state and the failed query stays visible as a finding.
+                self._add_finding(
+                    conn,
+                    run_id,
+                    "lookup_%s:%s@%d" % (outcome, refund_id, tick),
+                    "lookup_%s" % outcome,
+                    refund_id=refund_id,
+                    event_id=None,
+                    detail="provider lookup returned %s at tick %d" % (outcome, tick),
+                )
+
+            self._add_action(
+                conn,
+                run_id,
+                kind="lookup",
+                tick=tick,
+                cursor=None,
+                subject=refund_id,
+                event_id=observation.event_id if observation else None,
+                outcome=outcome,
+            )
+            # A query is also a clock read, so it moves the logical clock forward.
+            conn.execute(
+                "UPDATE run_state SET tick = ? WHERE run_id = ? AND tick < ?",
+                (tick, run_id, tick),
+            )
+            return LookupRecord(refund_id, tick, outcome, True, observation)
 
     def run_state(self, run_id: str) -> dict:
         conn = self._connect()
@@ -636,8 +755,26 @@ class Store:
         try:
             rows = conn.execute(
                 """
-                SELECT cursor, tick, attempt_id, event_id, outcome
-                FROM steps WHERE run_id = ? ORDER BY cursor
+                SELECT cursor, tick, subject AS attempt_id, event_id, outcome
+                FROM run_actions
+                WHERE run_id = ? AND kind = 'delivery'
+                ORDER BY cursor
+                """,
+                (run_id,),
+            ).fetchall()
+            return tuple(dict(row) for row in rows)
+        finally:
+            conn.close()
+
+    def actions(self, run_id: str) -> tuple[dict, ...]:
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT seq, kind, tick, cursor, subject, event_id, outcome
+                FROM run_actions
+                WHERE run_id = ?
+                ORDER BY seq
                 """,
                 (run_id,),
             ).fetchall()
@@ -737,7 +874,7 @@ class Store:
     ) -> tuple[Delivery, ...]:
         rows = conn.execute(
             """
-            SELECT attempt_id, event_id, refund_id, status, amount_paise, currency
+            SELECT attempt_id, event_id, refund_id, status, amount_paise, currency, source
             FROM deliveries WHERE run_id = ? ORDER BY seq
             """,
             (run_id,),
@@ -752,6 +889,7 @@ class Store:
                     row["amount_paise"],
                     row["currency"],
                 ),
+                row["source"],
             )
             for row in rows
         )

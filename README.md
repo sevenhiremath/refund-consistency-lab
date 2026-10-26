@@ -5,9 +5,9 @@ reordered, missing and conflicting provider events are delivered to a naive proc
 and to a protected one, so the point where their accounting diverges is visible
 instead of theoretical. No real payments, no provider SDK, no card data.
 
-**Status: M4 simulator.** Refund rules, the naive baseline, persistence and a
-deterministic fixture runner are implemented and tested. Provider lookup and the
-comparison page are not built: `/` still lists planned scenarios and runs nothing.
+**Status: M5 reconciliation.** Refund rules, the naive baseline, persistence, the
+deterministic fixture runner and provider-status lookup are implemented and tested.
+The comparison page is not built: `/` still lists planned scenarios and runs nothing.
 
 ## Requirements
 
@@ -143,28 +143,51 @@ reads as pending rather than missing.
 ## Simulator
 
 A fixture declares a payment, its refunds, what the provider knows, and which
-notifications were actually delivered. Seven fixtures live in `fixtures/`.
+notifications were actually delivered. Twelve fixtures live in `fixtures/`.
 
 - `events` is provider truth. `deliveries` is what was sent. Only deliveries become
   work for the processors, so a dropped event has no path into them. A fixture that
   says an event was delivered but schedules no delivery, or the reverse, is rejected.
+- A delivery claim must match its referenced event. A deliberate contradiction, such
+  as one event id claiming two refunds, needs `intentional_conflict: true` and an
+  optional `payload`, so a typo cannot silently become a conflict scenario.
 - Ticks are logical. `run_to_end` applies the whole schedule without waiting.
 - `step(run_id, expected_cursor)` applies one delivery. Repeating the same expected
   cursor returns the recorded result and changes nothing. A cursor ahead of the run is
   refused.
 - The cursor advances in the same transaction as the delivery it consumed, so a failed
   step leaves the schedule where it was.
-- `replay(run_id)` starts a new run from the stored fixture text. The run id changes,
-  the digest does not.
+- `replay(run_id)` starts a new run and replays the stored fixture and the whole
+  action log in order. The run id changes, the digest does not.
 
 The report carries the fixture hash, the input payment and refunds, the dropped
-provider events, every step outcome, the final comparison and the evidence. Its
-digest excludes the run id and timestamps, so two runs of the same fixture and
-actions compare equal.
+provider events, every action with its tick and outcome, the final comparison and the
+evidence. The digest covers logical timing and action order. It excludes the run id
+and wall-clock timestamps only.
 
 ```
 python -m app.sim fixtures/duplicate_success.json
 ```
+
+## Reconciliation
+
+`runner.reconcile(run_id, refund_id, at_tick)` asks the simulated provider about one
+refund at a logical tick. The tick defaults to the run clock and cannot move backwards.
+
+The answer goes through the same ingest path as a webhook and is tagged `lookup`, so
+the rules decide what it means.
+
+- A success the provider never sent is recovered, and only then does the refund become
+  succeeded.
+- `unavailable` and `not_found` add a finding and no observation. The refund keeps its
+  last known state. Neither one means failed.
+- A lookup whose amount differs from the intent is quarantined as `amount_mismatch`.
+- A lookup that contradicts an existing terminal observation produces
+  `terminal_conflict`, and both observations remain visible.
+
+A lookup never creates a refund and never changes provider truth. Repeating the same
+refund and tick returns the recorded outcome and adds no evidence. The naive baseline
+is webhook-only, so lookups do not reach it.
 
 ## Layout
 
@@ -177,13 +200,14 @@ app/domain/rules.py  admission, evidence reducer, comparison
 app/domain/naive.py  the deliberately naive baseline
 app/store.py         SQLite schema, admission and atomic ingest
 app/sim/fixture.py   fixture parsing and validation
-app/sim/runner.py    run creation, stepping, replay and report
+app/sim/provider.py  read-only provider view for lookups
+app/sim/runner.py    run creation, stepping, reconciliation, replay and report
 app/sim/cli.py       headless entry point
 app/main.py          app factory, / and /health
 app/templates/       server-rendered page
-fixtures/            seven deterministic scenarios
+fixtures/            twelve deterministic scenarios
 docs/decisions.md    tradeoffs and corrections
-tests/               health, page, database, money, admission, rule, store and sim tests
+tests/               health, page, database, money, admission, rule, store, sim and reconcile tests
 ```
 
 ## Design notes
