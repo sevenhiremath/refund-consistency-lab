@@ -206,7 +206,7 @@ def test_guided_page_labels_both_sides_and_shows_one_figure(client):
 
     # Before anything is delivered both records are empty, and the page says so.
     empty = client.get(location)
-    assert "Nothing has been delivered yet" in empty.text
+    assert "Nothing delivered yet" in empty.text
 
     client.post(
         action_url(location, "/run"), data={"expected_cursor": "0"}, follow_redirects=True
@@ -270,7 +270,7 @@ def test_guided_copy_does_not_claim_a_result_before_deliveries(client):
     # Explanation of the scenario is allowed. A stated current total is not.
     assert "now records" not in page.text
     assert "records ₹900" not in page.text
-    assert "Nothing has been delivered yet" in page.text
+    assert "Nothing delivered yet" in page.text
     assert "₹0.00" in page.text
 
 
@@ -327,10 +327,12 @@ def test_demo_page_leads_with_status_and_amounts(client):
     client.post(action_url(location, "/run"), data={"expected_cursor": "0"}, follow_redirects=True)
     page = client.get(location)
 
-    assert "Current refund status" in page.text
+    assert "Refund" in page.text and "Status" in page.text
     assert "Confirmed" in page.text
     assert "Under review" in page.text
     assert "Notification history" in page.text
+    # One summary, not a second copy of the same table.
+    assert 'data-testid="comparison"' not in page.text
     assert "₹300.00" in page.text
     assert "₹900.00" in page.text
 
@@ -340,12 +342,12 @@ def test_naive_comparison_is_a_secondary_teaching_view(client):
     client.post(action_url(location, "/run"), data={"expected_cursor": "0"}, follow_redirects=True)
     page = client.get(location)
 
-    assert "Teaching view" in page.text
+    assert "Naive baseline" in page.text
     assert "naive baseline" in page.text.lower()
-    assert "not three payouts" in page.text
-    # The two sides stay explicitly named.
-    assert "Webhooks only" in page.text
-    assert "Webhooks plus explicit lookup" in page.text
+    assert "not repeated payouts" in page.text or "not three payouts" in page.text
+    # The two sides are named from the product's point of view.
+    assert "Naive processor" in page.text
+    assert "Protected processor" in page.text
 
 
 def test_demo_labels_simulated_provider_data(client):

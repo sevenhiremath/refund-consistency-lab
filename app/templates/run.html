@@ -5,7 +5,8 @@
 {% block title %}{% if guided %}{{ guided.title }}{% else %}{{ body.fixture.label }}{% endif %} · Demo · Refund Consistency{% endblock %}
 {% block content %}
   {% set q = "?guided=1" if guided else "" %}
-  {% set open_attr = "" if guided else " open" %}
+  {% set refunds = body.comparison.refunds %}
+  {% set primary = refunds | first %}
 
   <p class="eyebrow">
     <a href="/walkthrough">Demo</a> ·
@@ -20,21 +21,16 @@
     <p class="lede">{{ body.fixture.notes }}</p>
   {% endif %}
 
-  {% set primary = body.comparison.refunds | first %}
-
-  {% if guided %}
-    <section class="tight">
-      <h2>Current refund status</h2>
-      <div class="summary">
+  <section class="tight">
+    <div class="summary">
+      {% if refunds | length == 1 %}
         <div>
           <span class="label">Refund</span>
           <span class="value">{{ primary.refund_id }}</span>
         </div>
         <div>
           <span class="label">Status</span>
-          <span class="value">
-            <span class="chip {{ primary.protected_status }}">{{ primary.protected_status }}</span>
-          </span>
+          <span class="value"><span class="chip {{ primary.protected_status }}">{{ primary.protected_status }}</span></span>
         </div>
         <div>
           <span class="label">Confirmed</span>
@@ -44,25 +40,10 @@
           <span class="label">Under review</span>
           {{ amount(primary.protected_review_paise, "review") }}
         </div>
-      </div>
-
-      {% if not body.actions %}
-        <p class="note" data-testid="empty-hint">
-          Nothing has been delivered yet, so both records are still empty. Press
-          <strong>Run to end</strong> to apply the scheduled notifications.
-        </p>
-      {% endif %}
-
-      <p class="note" data-testid="watch">{{ guided.watch }}</p>
-      <p class="note muted" data-testid="side-note">{{ guided.side_note }}</p>
-    </section>
-  {% else %}
-    <section class="tight">
-      <h2>Current refund status</h2>
-      <div class="summary">
+      {% else %}
         <div>
           <span class="label">Refunds</span>
-          <span class="value">{{ body.comparison.refunds | length }}</span>
+          <span class="value">{{ refunds | length }}</span>
         </div>
         <div>
           <span class="label">Confirmed</span>
@@ -72,58 +53,150 @@
           <span class="label">Under review</span>
           {{ amount(body.comparison.protected_review_paise, "review") }}
         </div>
-        <div>
-          <span class="label">Captured</span>
-          <span class="value">{{ body.inputs.payment.captured_paise | paise }}</span>
-        </div>
+      {% endif %}
+    </div>
+
+    <p class="reason" data-testid="reason">
+      {% if refunds | length == 1 %}
+        <b>Reason</b> ·
+        {% if primary.reasons %}
+          {{ primary.reasons | join(", ") | replace("_", " ") }}
+        {% else %}
+          settled by the notifications received
+        {% endif %}
+      {% else %}
+        <b>Reason</b> · each refund is decided from its own evidence
+      {% endif %}
+    </p>
+
+    {% if not body.actions %}
+      <p class="hint" data-testid="empty-hint">
+        Nothing delivered yet. Run to end applies the scheduled notifications.
+      </p>
+    {% elif finished and pending_refunds %}
+      <p class="hint">
+        Delivery is complete and the outcome is unknown. Reconcile asks the simulated
+        provider.
+      </p>
+    {% endif %}
+  </section>
+
+  <div class="controls">
+    <form method="post" action="/runs/{{ run_id }}/step{{ q }}" data-busy>
+      <input type="hidden" name="expected_cursor" value="{{ body.progress.cursor }}">
+      <button type="submit" data-busy-label="Stepping…" {% if finished %}disabled{% endif %}>Step</button>
+    </form>
+    <form method="post" action="/runs/{{ run_id }}/run{{ q }}" data-busy>
+      <input type="hidden" name="expected_cursor" value="{{ body.progress.cursor }}">
+      <button type="submit" data-busy-label="Running…" {% if finished %}disabled{% endif %}>Run to end</button>
+    </form>
+    <form method="post" action="/runs/{{ run_id }}/replay{{ q }}" data-busy>
+      <button type="submit" data-busy-label="Replaying…">Replay</button>
+    </form>
+    <form method="post" action="/runs/{{ run_id }}/reconcile{{ q }}" data-busy>
+      <label>
+        Refund
+        <select name="refund_id">
+          {% for row in refunds %}
+            <option value="{{ row.refund_id }}">{{ row.refund_id }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Query tick
+        <input type="number" name="tick" min="0" value="{{ body.progress.tick }}" required>
+      </label>
+      <button type="submit" data-busy-label="Asking…">Reconcile</button>
+    </form>
+    <a class="btn secondary" href="/runs/{{ run_id }}/evidence">Evidence</a>
+    <span class="busy-note" data-busy-note hidden>Working…</span>
+  </div>
+
+  <details class="compare">
+    <summary>
+      <span class="cmp-title">Naive baseline</span>
+      <span class="cmp-values">
+        naive processor <b>{{ primary.naive_total_paise | paise }}</b>
+        · protected processor <b class="ok">{{ primary.protected_confirmed_paise | paise }}</b>
+      </span>
+    </summary>
+    <div class="compare-body">
+      <p class="muted small">
+        The naive baseline counts every notification, so a repeated delivery inflates
+        it. The service applies each provider event once. These are local records, not
+        repeated payouts.
+      </p>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Refund</th>
+              <th>Naive processor</th>
+              <th>Protected processor</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in refunds %}
+              <tr>
+                <td>{{ row.refund_id }}</td>
+                <td>
+                  <span class="chip {{ row.naive_status }}">{{ row.naive_status }}</span>
+                  <span class="num">{{ row.naive_total_paise | paise }}</span>
+                </td>
+                <td>
+                  <span class="chip {{ row.protected_status }}">{{ row.protected_status }}</span>
+                  <span class="num">{{ row.protected_confirmed_paise | paise }}</span>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </details>
+
+  {% if refunds | length > 1 %}
+    <section class="tight">
+      <h2>Refunds</h2>
+      <div class="scroll">
+        <table data-testid="comparison">
+          <thead>
+            <tr>
+              <th>Refund</th>
+              <th class="num">Amount</th>
+              <th>Status</th>
+              <th class="num">Confirmed</th>
+              <th class="num">Under review</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in refunds %}
+              <tr>
+                <td>{{ row.refund_id }}</td>
+                <td class="num">{{ row.amount_paise | paise }}</td>
+                <td><span class="chip {{ row.protected_status }}">{{ row.protected_status }}</span></td>
+                <td class="num">{{ row.protected_confirmed_paise | paise }}</td>
+                <td class="num">{{ row.protected_review_paise | paise }}</td>
+                <td class="muted">
+                  {% if row.reasons %}
+                    {{ row.reasons | join(", ") | replace("_", " ") }}
+                  {% else %}
+                    settled by the notifications received
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
     </section>
   {% endif %}
 
   <section class="tight">
-    <h2>Refunds</h2>
-    <div class="scroll">
-      <table data-testid="comparison">
-        <thead>
-          <tr>
-            <th>Refund</th>
-            <th class="num">Amount</th>
-            <th>Status</th>
-            <th class="num">Confirmed</th>
-            <th class="num">Under review</th>
-            <th>Reason</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in body.comparison.refunds %}
-            <tr>
-              <td>{{ row.refund_id }}</td>
-              <td class="num">{{ row.amount_paise | paise }}</td>
-              <td><span class="chip {{ row.protected_status }}">{{ row.protected_status }}</span></td>
-              <td class="num">{{ row.protected_confirmed_paise | paise }}</td>
-              <td class="num">{{ row.protected_review_paise | paise }}</td>
-              <td class="muted">
-                {% if row.reasons %}
-                  {{ row.reasons | join(", ") | replace("_", " ") }}
-                {% else %}
-                  <span class="muted">settled by the notifications received</span>
-                {% endif %}
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </section>
-
-  <section class="tight">
     <h2>Notification history</h2>
-    <p class="muted small">
-      Simulated provider notifications. A delivery is one delivery attempt of one
-      event.
-    </p>
     {% if body.actions %}
-      <div class="scroll">
+      <div class="scroll" data-timeline="{{ run_id }}">
         <table data-testid="actions">
           <thead>
             <tr>
@@ -137,7 +210,7 @@
           </thead>
           <tbody>
             {% for action in body.actions %}
-              <tr>
+              <tr data-seq="{{ action.seq }}">
                 <td class="num">{{ action.seq }}</td>
                 <td>{{ action.kind }}</td>
                 <td class="num">{{ action.tick }}</td>
@@ -149,141 +222,30 @@
           </tbody>
         </table>
       </div>
+      <p class="muted small" style="margin-top:.5rem">
+        Simulated provider notifications. Each row is one delivery attempt or one
+        simulated lookup.
+      </p>
     {% else %}
-      <p class="muted">No notifications yet. Step the run or reconcile.</p>
+      <p class="muted">No notifications yet.</p>
     {% endif %}
   </section>
 
-  <section class="tight">
-    <h2>Actions</h2>
-    <div class="controls">
-      <form method="post" action="/runs/{{ run_id }}/step{{ q }}" data-busy>
-        <input type="hidden" name="expected_cursor" value="{{ body.progress.cursor }}">
-        <button type="submit" data-busy-label="Stepping…" {% if finished %}disabled{% endif %}>Step</button>
-      </form>
-      <form method="post" action="/runs/{{ run_id }}/run{{ q }}" data-busy>
-        <input type="hidden" name="expected_cursor" value="{{ body.progress.cursor }}">
-        <button type="submit" data-busy-label="Running…" {% if finished %}disabled{% endif %}>Run to end</button>
-      </form>
-      <form method="post" action="/runs/{{ run_id }}/replay{{ q }}" data-busy>
-        <button type="submit" data-busy-label="Replaying…">Replay</button>
-      </form>
-      <span class="busy-note" data-busy-note hidden>Working…</span>
-    </div>
-
-    <div class="controls">
-      <form method="post" action="/runs/{{ run_id }}/reconcile{{ q }}" data-busy>
-        <label>
-          Refund
-          <select name="refund_id">
-            {% for row in body.comparison.refunds %}
-              <option value="{{ row.refund_id }}">{{ row.refund_id }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>
-          Query tick
-          <input type="number" name="tick" min="0" value="{{ body.progress.tick }}" required>
-        </label>
-        <button type="submit" data-busy-label="Asking…">Reconcile</button>
-        <span class="busy-note" data-busy-note hidden>Asking the simulated provider…</span>
-      </form>
-      <a class="btn secondary" href="/runs/{{ run_id }}/evidence">Download evidence</a>
-    </div>
-    <p class="muted small">
-      Reconcile asks the simulated provider for a refund's current state. It is the
-      only way to learn about a notification that was never delivered.
-    </p>
-  </section>
-
   {% if guided %}
-    <section class="tight">
-      <h2>Teaching view: the naive baseline</h2>
-      <p class="muted">
-        The protected service applies each provider event once. The naive baseline
-        counts every notification, so the same delivery makes it diverge. It exists to
-        show what a counting bug looks like, not how the product works.
-      </p>
-      <div class="summary">
-        <div>
-          <span class="label">Webhooks only</span>
-          <span class="value">{{ primary.naive_total_paise | paise }}</span>
-        </div>
-        <div>
-          <span class="label">Its status</span>
-          <span class="value"><span class="chip {{ primary.naive_status }}">{{ primary.naive_status }}</span></span>
-        </div>
-        <div>
-          <span class="label">Webhooks plus explicit lookup</span>
-          {{ amount(primary.protected_confirmed_paise, "confirmed") }}
-        </div>
+    <details>
+      <summary>What this scenario shows</summary>
+      <div class="tech-body">
+        <p>{{ guided.watch }}</p>
+        <p class="muted">{{ guided.side_note }}</p>
+        <p class="muted small">
+          Duplicate deliveries are settled by the provider event id alone. A lookup is
+          only for information a missing notification never carried.
+        </p>
       </div>
-      <p class="note">
-        These are local records, not three payouts. A duplicate notification does not
-        make the provider send the money again.
-      </p>
-    </section>
+    </details>
   {% endif %}
 
-  <details class="tech"{{ open_attr }}>
-    <summary>Totals and the full comparison</summary>
-    <div class="tech-body">
-      <div class="summary">
-        <div>
-          <span class="label">Captured</span>
-          <span class="value">{{ body.inputs.payment.captured_paise | paise }}</span>
-        </div>
-        <div>
-          <span class="label">Admitted</span>
-          <span class="value">{{ body.comparison.admitted_paise | paise }}</span>
-        </div>
-        <div>
-          <span class="label">Confirmed</span>
-          {{ amount(body.comparison.protected_confirmed_paise, "confirmed") }}
-        </div>
-        <div>
-          <span class="label">Under review</span>
-          {{ amount(body.comparison.protected_review_paise, "review") }}
-        </div>
-        <div>
-          <span class="label">Naive total</span>
-          <span class="value">{{ body.comparison.naive_total_paise | paise }}</span>
-        </div>
-      </div>
-      <div class="scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Refund</th>
-              <th class="num">Amount</th>
-              <th>Protected</th>
-              <th class="num">Confirmed</th>
-              <th class="num">Review</th>
-              <th>Naive</th>
-              <th class="num">Naive total</th>
-              <th>Reason</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in body.comparison.refunds %}
-              <tr>
-                <td>{{ row.refund_id }}</td>
-                <td class="num">{{ row.amount_paise | paise }}</td>
-                <td><span class="chip {{ row.protected_status }}">{{ row.protected_status }}</span></td>
-                <td class="num">{{ row.protected_confirmed_paise | paise }}</td>
-                <td class="num">{{ row.protected_review_paise | paise }}</td>
-                <td>{{ row.naive_status }}</td>
-                <td class="num">{{ row.naive_total_paise | paise }}</td>
-                <td>{% if row.reasons %}{{ row.reasons | join(", ") }}{% else %}—{% endif %}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </details>
-
-  <details class="tech"{{ open_attr }}>
+  <details>
     <summary>Evidence: findings, unmatched deliveries, provider events</summary>
     <div class="tech-body">
       <h3>Findings</h3>
@@ -317,7 +279,65 @@
     </div>
   </details>
 
-  <details class="tech">
+  <details>
+    <summary>Full comparison and totals</summary>
+    <div class="tech-body">
+      <div class="summary">
+        <div>
+          <span class="label">Captured</span>
+          <span class="value">{{ body.inputs.payment.captured_paise | paise }}</span>
+        </div>
+        <div>
+          <span class="label">Admitted</span>
+          <span class="value">{{ body.comparison.admitted_paise | paise }}</span>
+        </div>
+        <div>
+          <span class="label">Confirmed</span>
+          {{ amount(body.comparison.protected_confirmed_paise, "confirmed") }}
+        </div>
+        <div>
+          <span class="label">Under review</span>
+          {{ amount(body.comparison.protected_review_paise, "review") }}
+        </div>
+        <div>
+          <span class="label">Naive total</span>
+          <span class="value">{{ body.comparison.naive_total_paise | paise }}</span>
+        </div>
+      </div>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Refund</th>
+              <th class="num">Amount</th>
+              <th>Status</th>
+              <th class="num">Confirmed</th>
+              <th class="num">Review</th>
+              <th>Naive</th>
+              <th class="num">Naive total</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in refunds %}
+              <tr>
+                <td>{{ row.refund_id }}</td>
+                <td class="num">{{ row.amount_paise | paise }}</td>
+                <td><span class="chip {{ row.protected_status }}">{{ row.protected_status }}</span></td>
+                <td class="num">{{ row.protected_confirmed_paise | paise }}</td>
+                <td class="num">{{ row.protected_review_paise | paise }}</td>
+                <td>{{ row.naive_status }}</td>
+                <td class="num">{{ row.naive_total_paise | paise }}</td>
+                <td>{% if row.reasons %}{{ row.reasons | join(", ") }}{% else %}—{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </details>
+
+  <details>
     <summary>Identifiers: run, scenario, fixture hash, report digest</summary>
     <div class="tech-body">
       <dl class="meta">
@@ -325,7 +345,7 @@
         <div><dt>Scenario</dt><dd><code>{{ body.fixture.name }}</code></dd></div>
         <div><dt>Fixture</dt><dd><code>{{ body.fixture.sha256[:12] }}</code></dd></div>
         <div><dt>Report digest</dt><dd><code>{{ digest[:16] }}</code></dd></div>
-        <div><dt>Provider</dt><dd>{{ body.fixture.provider }}</dd></div>
+        <div><dt>Provider</dt><dd><code>{{ body.fixture.provider }}</code></dd></div>
         <div><dt>Tick</dt><dd>{{ body.progress.tick }}</dd></div>
         <div><dt>Deliveries applied</dt><dd>{{ body.progress.cursor }} of {{ body.inputs.scheduled_deliveries }}</dd></div>
         <div>

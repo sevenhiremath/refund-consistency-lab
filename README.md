@@ -1,12 +1,50 @@
-# Refund Consistency Lab
+# Refund Consistency
 
-A fault-injection lab for refund notification processing. The same duplicate, late,
-reordered, missing and conflicting provider events are delivered to a naive processor
-and to a protected one, so the point where their accounting diverges is visible
-instead of theoretical. No real payments, no provider SDK, no card data.
+A small refund notification processing service. It maintains one record per refund
+from the provider notifications you deliver, so duplicate, late and conflicting events
+resolve to one answer you can explain. It does **not** move money: no refund execution,
+no outgoing notifications, no provider credentials.
 
-**Status: M6 page and API.** The lab is usable end to end: pick a scenario, step or
-run it, compare both processors, reconcile, replay and download the evidence.
+The **simulator is the public demonstration** of that service, not a second product.
+It runs the same admission and processing rules over twelve fixed scenarios, plus a
+deliberately naive baseline that shows what a counting bug looks like.
+
+No real merchant payments are processed and no live provider is contacted.
+
+## What changed, and what it is now
+
+This started as a fault-injection lab where the naive and protected processors were
+equals. The direction changed: **the protected processor is the product**, and the
+simulator is its demonstration and test harness. The naive baseline stays because it
+shows the failure the service exists to prevent, but it is a teaching view, not the
+other half of the product.
+
+What that means in practice:
+
+- `/v1` is the product surface. A trusted backend registers a payment and refunds,
+  delivers normalized notifications, and reads protected status.
+- The twelve scenarios are the demonstration. They are fixtures, not customer data.
+- Provider lookup is **simulated and demo only**. The integration API has no lookup
+  route, because there is no real provider adapter yet. A lookup exists to supply
+  information a dropped notification never carried; it is not how duplicates are
+  handled.
+- The two surfaces cannot reach each other's data.
+
+## Limitations
+
+- One server wide `INTEGRATION_API_KEY`, no accounts, no per-client revocation.
+- `POST /v1/workspaces` is not idempotent: a retried creation makes a second
+  workspace. Do not retry it blindly.
+- One payment and at most 50 refunds per workspace. No pagination.
+- Processing is synchronous inside the request, so ingest latency is request latency
+  and retries belong to the caller.
+- Identity is scoped to one workspace and one provider. The same provider event in
+  two workspaces is two independent observations; deduplication across workspaces is
+  not promised.
+- Provider lookup, the simulated provider and the fixture scenarios are demo only.
+  Nothing here has been run against a real payment provider.
+- SQLite with one writer. Run to end holds the write lock for the whole schedule.
+- Stored runs do not survive a container replacement, and the free instance sleeps.
 
 ## Requirements
 
@@ -35,10 +73,19 @@ Tests run against the ASGI app in-process; no server and no network are needed.
 uvicorn app.main:app --reload --port 8000
 ```
 
-- `GET /` — skeleton page: version, git SHA, database state, planned scenarios
+- `GET /` — overview of the service
+- `GET /walkthrough` — the demo console: twelve scenarios plus three guided ones
+- `GET /integrate` — the integration API flow and the runnable example
+- `GET /runs/{id}` — one demo run: refund status, notification history, evidence
+- `GET /api/*` — JSON mirror of the demo, unauthenticated
+- `GET /v1/*` — integration API, requires `INTEGRATION_API_KEY`
 - `GET /health` — JSON. 200 `ok` when the database is writable and in WAL mode,
   200 `degraded` when it is writable but the volume refused WAL, 503 `error`
   when it cannot be written at all
+
+The demo routes and the integration routes share the tables but not the surface. A
+demo route pointed at an integration workspace answers 404, and `/v1` rejects demo
+runs, so there is no path to user data without the key and no simulated lookup over it.
 
 ## Docker
 
@@ -220,7 +267,10 @@ creates single-payment runs.
 python -m app.sim fixtures/duplicate_success.json
 ```
 
-## Reconciliation
+## Reconciliation (demo only)
+
+This section describes the simulator. There is no lookup in the integration API; see
+[Integration API](#integration-api).
 
 `runner.reconcile(run_id, refund_id, at_tick)` asks the simulated provider about one
 refund at a logical tick. The tick defaults to the run clock and cannot move backwards.
@@ -319,6 +369,12 @@ walks one workspace through a captured payment of 100000 paise, a 30000 paise re
 the same success event delivered three times under three attempt ids, an identical
 retry, and a later pending event, printing the confirmed amount after each step.
 
+`tests/test_integration_client.py` drives this exact flow through the real `/v1` routes
+in process, so the client logic is covered by the test suite. A run against a live
+server additionally needs that server started with `INTEGRATION_API_KEY` set; without
+it every `/v1` path answers 404 and the example exits with a clear message rather than
+fabricating a result.
+
 The demo pages and the demonstration API cannot reach integration data. A demo route
 pointed at an integration workspace answers 404, so there is no path to user data
 without the key, and no path to a simulated lookup over it.
@@ -327,19 +383,25 @@ Identity is scoped to one workspace and one provider. The same provider event id
 two workspaces is two independent observations. Deduplication is not promised across
 workspaces.
 
-## Page and API
+## Pages
 
-`/walkthrough` is the guided entry point: three of the twelve scenarios with a short
-explanation of what to look for. `/` lists all twelve, and the guided steps stay
-reachable from it. A guided run page highlights one comparison between the naive side
-(`Webhooks only`) and the protected side (`Webhooks plus explicit lookup`), with totals,
-action log, evidence and identifiers behind disclosure blocks. Nothing in the
-walkthrough is precomputed: every figure is rendered from the same report the API
-returns, and the explanation of a scenario is written so it does not assert a current
+Three destinations: **Overview** (`/`), **Demo** (`/walkthrough`) and **Integrate**
+(`/integrate`). The visual system is a dark charcoal canvas with a navigation rail on
+desktop that becomes a top bar on narrow screens, one accent green for confirmed
+amounts and amber for amounts under review.
+
+The demo console leads with one refund summary: status, confirmed amount and amount
+under review. Processing controls and the notification history follow, so both fit on
+the first screen at a normal desktop size. The naive comparison is a collapsed panel
+whose summary line already shows both totals, so the divergence is one click away
+during a demo without pushing the timeline down. Longer explanations, evidence,
+identifiers and the full comparison sit behind disclosures.
+
+Every figure is rendered from the same report the JSON API returns. Nothing is
+precomputed for the walkthrough, and a scenario's explanation never asserts a current
 total before the deliveries run.
 
-A run page shows both processors side by side and
-offers Step, Run to end, Reconcile, Replay and Download evidence.
+A run page offers Step, Run to end, Reconcile, Replay and Download evidence.
 
 Every number on the page comes from a `RunReport` built in `app/lab_service.py`.
 Templates format values, they never calculate them, so the page and the evidence
@@ -424,6 +486,7 @@ app/templates/       server-rendered page
 fixtures/            twelve deterministic scenarios
 tools/browser_check.py  development-only browser walkthrough
 docs/decisions.md    tradeoffs and corrections
+docs/demo-script.md  a 90 to 110 second walkthrough of the finished product
 tests/               health, page, database, money, admission, rule, store, sim and reconcile tests
 ```
 

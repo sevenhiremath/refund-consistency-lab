@@ -34,8 +34,9 @@ GUIDED_STEPS: tuple[Step, ...] = (
             "once."
         ),
         side_note=(
-            "No reconciliation step is needed here. Repeated notifications are handled "
-            "by the duplicate rule, which is why the protected side never moves."
+            "No reconciliation step is needed here. The protected total reaches ₹300 "
+            "on the first success and stays there when the same event arrives again. "
+            "Only the naive baseline keeps counting."
         ),
     ),
     Step(
