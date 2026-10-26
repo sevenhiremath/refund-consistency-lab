@@ -62,6 +62,13 @@ async def create_run(request: Request) -> RedirectResponse:
 async def run_page(request: Request, run_id: str) -> HTMLResponse:
     report = _lab(request).report(run_id)
     body = report.body
+    # A pending refund at the end of the schedule is unresolved, not failed. The
+    # page says so instead of implying the run settled the refund.
+    pending_refunds = [
+        row["refund_id"]
+        for row in body["comparison"]["refunds"]
+        if row["protected_status"] == "pending"
+    ]
     return _templates(request).TemplateResponse(
         request=request,
         name="run.html",
@@ -70,6 +77,7 @@ async def run_page(request: Request, run_id: str) -> HTMLResponse:
             "body": body,
             "finished": body["progress"]["finished"],
             "digest": report.digest,
+            "pending_refunds": pending_refunds,
         },
     )
 

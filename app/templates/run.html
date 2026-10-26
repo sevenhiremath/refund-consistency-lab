@@ -11,16 +11,25 @@
     <div><dt>Tick</dt><dd>{{ body.progress.tick }}</dd></div>
     <div><dt>Deliveries applied</dt><dd>{{ body.progress.cursor }} of {{ body.inputs.scheduled_deliveries }}</dd></div>
     <div>
-      <dt>State</dt>
+      <dt>Notification delivery</dt>
       <dd>
         {% if finished %}
-          <span class="badge finished">finished</span>
+          <span class="badge finished">complete</span>
         {% else %}
           <span class="badge pending">in progress</span>
         {% endif %}
       </dd>
     </div>
   </dl>
+
+  {% if finished and pending_refunds %}
+    <p class="note">
+      Notification delivery is complete, but
+      {% if pending_refunds | length == 1 %}{{ pending_refunds[0] }} is{% else %}{{ pending_refunds | join(", ") }} are{% endif %}
+      still pending. That outcome is unknown, not a failure. Reconcile can ask
+      the provider what it knows.
+    </p>
+  {% endif %}
 
   <div class="controls">
     <form method="post" action="/runs/{{ run_id }}/step" data-busy>

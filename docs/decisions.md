@@ -114,10 +114,11 @@ failure is described in this design but not demonstrated by the lab.
 | run to end | one transaction for every remaining delivery |
 | reconcile | one transaction for the lookup evidence, its finding, the action row and the clock |
 
-A step and run to end use different scopes. A failed step loses exactly one delivery
-and leaves the cursor where it was, so the same step can be retried. A failed run to
-end loses every delivery in that call, because the loop and each cursor update share
-one transaction; nothing is half applied, but nothing from that call survives either.
+A step and run to end use different scopes. A failed step leaves exactly one delivery
+unapplied and the cursor where it was, so the same step can be retried. A failed run to
+end leaves every delivery in that call unapplied, because the loop and each cursor
+update share one transaction. Nothing is half applied, and each of those deliveries is
+still available for retry.
 
 SQLite allows one writer, so a step holds the write lock for one delivery while a run
 to end holds it for the whole remaining schedule. Readers in WAL mode are not blocked,

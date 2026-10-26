@@ -58,7 +58,8 @@ def test_run_to_end_shows_the_naive_divergence(client):
     assert page.status_code == 200
     assert page.text.count("300.00") >= 1
     assert "900.00" in page.text
-    assert "finished" in page.text
+    assert "Notification delivery" in page.text
+    assert "complete" in page.text
 
 
 def test_reconcile_recovers_a_missing_success(client):
@@ -149,3 +150,15 @@ def test_finished_run_disables_step_buttons(client):
 
     assert 'disabled>Step' in page.text
     assert 'disabled>Run to end' in page.text
+
+def test_complete_delivery_with_a_pending_refund_explains_the_unknown(client):
+    # lookup_recovers_success has no scheduled deliveries, so delivery is complete
+    # while the refund is still pending. The page must not imply it settled.
+    location = start(client, "lookup_recovers_success")
+    page = client.get(location)
+
+    assert "Notification delivery" in page.text
+    assert "complete" in page.text
+    assert "still pending" in page.text
+    assert "unknown, not a failure" in page.text
+    assert "Reconcile" in page.text

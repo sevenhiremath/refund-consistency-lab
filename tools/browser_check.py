@@ -79,7 +79,7 @@ def main() -> int:
         healthy_row = page.get_by_test_id("comparison").locator("tbody tr", has_text="R1")
         check("healthy protected succeeded", "succeeded" in healthy_row.inner_text())
         check("healthy naive agrees", "succeeded" in healthy_row.inner_text())
-        check("finished state shown", "finished" in page.inner_text("body"))
+        check("delivery completion shown", "complete" in page.inner_text("body"))
         check("step disabled after finishing", page.get_by_role("button", name="Step").is_disabled())
         page.screenshot(path=str(SHOTS / "02-healthy.png"), full_page=True)
 
