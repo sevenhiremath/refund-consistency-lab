@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Integrate · Refund Consistency{% endblock %}
+{% block content %}
+  <p class="eyebrow">Integrate</p>
+  <h1>Send your own refund notifications.</h1>
+  <p class="lede">
+    A trusted backend registers a payment and its refunds, delivers already
+    normalized provider notifications, and reads back the resulting refund status.
+  </p>
+
+  <section>
+    <h2>Access</h2>
+    <p>
+      The integration routes require an API key configured on the server, read from
+      the <code>INTEGRATION_API_KEY</code> environment variable. Send it as a bearer
+      token in the <code>Authorization</code> header.
+    </p>
+    <p class="note">
+      With no key configured the integration routes are unavailable and answer 404.
+      The public demo keeps working without one. The key is never accepted in a URL
+      and never appears in a response.
+    </p>
+  </section>
+
+  <section>
+    <h2>The flow</h2>
+    <ol class="steps">
+      <li>
+        <span class="step-num">1</span>
+        <div>
+          <h2>Create a workspace</h2>
+          <p>One payment, one provider identity, integer paise in INR.</p>
+          <p class="endpoint"><code>POST /v1/workspaces</code></p>
+        </div>
+      </li>
+      <li>
+        <span class="step-num">2</span>
+        <div>
+          <h2>Register refund intents</h2>
+          <p>Partial refunds are admitted against the captured amount before any
+            provider is asked.</p>
+          <p class="endpoint"><code>POST /v1/workspaces/{id}/refunds</code></p>
+        </div>
+      </li>
+      <li>
+        <span class="step-num">3</span>
+        <div>
+          <h2>Deliver notifications</h2>
+          <p>One normalized observation per delivery attempt. Duplicates are settled
+            by the event id alone.</p>
+          <p class="endpoint"><code>POST /v1/workspaces/{id}/deliveries</code></p>
+        </div>
+      </li>
+      <li>
+        <span class="step-num">4</span>
+        <div>
+          <h2>Read status and evidence</h2>
+          <p>Confirmed amounts, amounts under review, and the stored reasons.</p>
+          <p class="endpoint"><code>GET /v1/workspaces/{id}</code></p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Request shape</h2>
+    <pre><code>POST /v1/workspaces
+Authorization: Bearer $INTEGRATION_API_KEY
+Content-Type: application/json
+
+{"provider":"psp_x","payment_id":"pay_1","captured_paise":100000}</code></pre>
+    <pre><code>POST /v1/workspaces/{id}/refunds
+{"refund_id":"R1","amount_paise":30000}</code></pre>
+    <pre><code>POST /v1/workspaces/{id}/deliveries
+{"attempt_id":"a1","event_id":"E8","refund_id":"R1",
+ "status":"succeeded","amount_paise":30000}</code></pre>
+    <p class="muted small">
+      Amounts must be JSON numbers in integer paise. Strings, floats and booleans are
+      rejected. Identifiers are bounded, unknown fields are refused, and the
+      notification origin is fixed to a webhook on the server.
+    </p>
+  </section>
+
+  <section>
+    <h2>Response shape</h2>
+    <p>
+      A delivery reports the recorded outcome and the refund's resulting status
+      separately, because a recorded delivery does not mean the refund succeeded.
+    </p>
+    <pre><code>{"outcome":"accepted","recorded":true,
+ "refund":{"refund_id":"R1","status":"succeeded",
+           "confirmed_paise":30000,"review_paise":0,"reasons":[]}}</code></pre>
+  </section>
+
+  <section>
+    <h2>Runnable example</h2>
+    <p>
+      <code>examples/integration_client.py</code> is a second application using the
+      service. It imports nothing from the lab, and its notifications travel through
+      the real API.
+    </p>
+<pre><code>python -m pip install httpx
+set LAB_BASE_URL=http://127.0.0.1:8031
+set INTEGRATION_API_KEY=your-key
+python examples\integration_client.py</code></pre>
+    <p class="muted small">
+      The example creates a workspace with a 100000 paise capture, registers a 30000
+      paise refund, delivers one success three times under three attempt ids, retries
+      an identical attempt, and checks a later pending event does not move a settled
+      refund. It does not retry workspace creation, because that endpoint makes a
+      new workspace each time it succeeds.
+    </p>
+  </section>
+
+  <section>
+    <h2>What is not in the API</h2>
+    <p>
+      There is no provider lookup route and no refund execution. The demo's lookup
+      is simulated and stays inside the demonstration, so the API never answers from
+      fixture truth. When a real provider adapter exists it will add a lookup that
+      supplies information a dropped notification never carried.
+    </p>
+    <p class="note">
+      Duplicate handling does not need a lookup. A processor that keys on the provider
+      event id applies it once, however many times it is delivered.
+    </p>
+  </section>
+{% endblock %}

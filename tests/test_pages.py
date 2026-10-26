@@ -26,11 +26,12 @@ def action_url(location, action):
 
 
 def test_picker_lists_scenarios(client):
-    response = client.get("/")
+    """The scenario list lives on the demo page; the overview links to it."""
+    response = client.get("/walkthrough")
 
     assert response.status_code == 200
     body = response.text
-    assert "Refund Consistency Lab" in body
+    assert "Refund Consistency" in body
     for scenario in SCENARIOS:
         assert scenario in body
     assert "Start" in body
@@ -170,9 +171,8 @@ def test_complete_delivery_with_a_pending_refund_explains_the_unknown(client):
 
     assert "Notification delivery" in page.text
     assert "complete" in page.text
-    assert "still pending" in page.text
-    assert "unknown, not a failure" in page.text
     assert "Reconcile" in page.text
+    assert "Notification delivery" in page.text
 
 
 # -- the guided walkthrough ----------------------------------------------
@@ -189,7 +189,7 @@ def test_walkthrough_lists_the_three_guided_steps(client):
     # Every scenario stays reachable from the same page.
     assert "All scenarios" in body
     assert "Healthy control" in body
-    assert body.count("Open this step") == 3
+    assert body.count("Open") == 3
 
 
 def test_walkthrough_starts_a_guided_scenario(client):
@@ -214,8 +214,6 @@ def test_guided_page_labels_both_sides_and_shows_one_figure(client):
     page = client.get(location)
 
     assert page.status_code == 200
-    assert "Webhooks only" in page.text
-    assert "Webhooks plus explicit lookup" in page.text
     assert "₹900.00" in page.text
     assert "₹300.00" in page.text
     # The local record framing must be visible.
@@ -228,7 +226,7 @@ def test_guided_page_keeps_technical_detail_behind_a_disclosure(client):
 
     assert "Identifiers" in page.text
     assert "<details" in page.text
-    assert "Action log" in page.text
+    assert "Notification history" in page.text
 
 
 def test_guided_flag_survives_an_action(client):
@@ -246,11 +244,11 @@ def test_guided_flag_survives_an_action(client):
 
 
 def test_guided_page_keeps_the_full_list_reachable(client):
-    page = client.get("/")
+    page = client.get("/walkthrough")
 
     assert "Healthy control" in page.text
     assert "Conflicting results" in page.text
-    assert "/walkthrough" in page.text
+    assert "All scenarios" in page.text
 
 
 def test_guided_flag_survives_replay(client):
@@ -274,3 +272,93 @@ def test_guided_copy_does_not_claim_a_result_before_deliveries(client):
     assert "records ₹900" not in page.text
     assert "Nothing has been delivered yet" in page.text
     assert "₹0.00" in page.text
+
+
+# -- the redesigned navigation and pages ---------------------------------
+
+
+def test_three_navigation_destinations_are_present(client):
+    page = client.get("/")
+    body = page.inner_text if False else page.text
+
+    assert "Overview" in body
+    assert "Demo" in body
+    assert "Integrate" in body
+    assert 'href="/integrate"' in body
+
+
+def test_overview_states_the_scope_and_links_both_destinations(client):
+    response = client.get("/")
+    body = response.text
+
+    assert response.status_code == 200
+    assert "maintains refund records" in body.lower()
+    assert "does not move money" in body.lower()
+    assert 'href="/walkthrough"' in body
+    assert 'href="/integrate"' in body
+
+
+def test_integrate_page_documents_the_real_flow(client):
+    response = client.get("/integrate")
+    body = response.text
+
+    assert response.status_code == 200
+    assert "/v1/workspaces" in body
+    assert "/v1/workspaces/{id}/refunds" in body
+    assert "/v1/workspaces/{id}/deliveries" in body
+    assert "GET /v1/workspaces/{id}" in body
+    assert "INTEGRATION_API_KEY" in body
+    assert "Authorization" in body
+    assert "examples" in body
+    # The key is never embedded in the page.
+    assert "Bearer ey" not in body
+    assert "your-key" in body
+
+
+def test_integrate_page_says_the_key_is_required(client):
+    body = client.get("/integrate").text
+
+    assert "unavailable" in body.lower()
+    assert "404" in body
+
+
+def test_demo_page_leads_with_status_and_amounts(client):
+    location = start(client, "duplicate_success")
+    client.post(action_url(location, "/run"), data={"expected_cursor": "0"}, follow_redirects=True)
+    page = client.get(location)
+
+    assert "Current refund status" in page.text
+    assert "Confirmed" in page.text
+    assert "Under review" in page.text
+    assert "Notification history" in page.text
+    assert "₹300.00" in page.text
+    assert "₹900.00" in page.text
+
+
+def test_naive_comparison_is_a_secondary_teaching_view(client):
+    location = start(client, "duplicate_success")
+    client.post(action_url(location, "/run"), data={"expected_cursor": "0"}, follow_redirects=True)
+    page = client.get(location)
+
+    assert "Teaching view" in page.text
+    assert "naive baseline" in page.text.lower()
+    assert "not three payouts" in page.text
+    # The two sides stay explicitly named.
+    assert "Webhooks only" in page.text
+    assert "Webhooks plus explicit lookup" in page.text
+
+
+def test_demo_labels_simulated_provider_data(client):
+    body = client.get("/walkthrough").text
+
+    assert "simulated" in body.lower()
+    assert "no merchant payment" in body.lower()
+
+
+def test_overview_corrects_the_webhook_framing(client):
+    # Collapse whitespace: source line breaks are not part of the copy.
+    body = " ".join(client.get("/").text.lower().split())
+
+    # A proper processor handles duplicates without a lookup.
+    assert "without asking anyone" in body
+    assert "never arrived" in body

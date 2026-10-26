@@ -58,6 +58,16 @@ async def index(request: Request) -> HTMLResponse:
     )
 
 
+@router.get("/integrate", response_class=HTMLResponse)
+async def integrate(request: Request) -> HTMLResponse:
+    """Documentation for the integration API. Never contains a key."""
+    return _templates(request).TemplateResponse(
+        request=request,
+        name="integrate.html",
+        context={"version": VERSION},
+    )
+
+
 @router.get("/walkthrough", response_class=HTMLResponse)
 async def walkthrough(request: Request) -> HTMLResponse:
     """Entry point for the guided path. The full list stays at /."""

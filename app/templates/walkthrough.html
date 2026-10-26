@@ -1,54 +1,83 @@
 {% extends "base.html" %}
-{% block title %}Guided walkthrough · Refund Consistency Lab{% endblock %}
+{% block title %}Demo · Refund Consistency{% endblock %}
 {% block content %}
-  <p class="eyebrow">Three scenarios, about a minute</p>
-  <h1>Refund Consistency Lab</h1>
+  <p class="eyebrow">Demo</p>
+  <h1>Refund operations console</h1>
   <p class="lede">
-    The same refund notifications reach two processors: one that only trusts
-    webhooks, and one that also asks the provider when something is missing. This
-    walkthrough shows the three ways their records most often disagree.
+    The simulator is the public demonstration of the service. Start one of the guided
+    scenarios, or pick any scenario and step through it.
   </p>
 
-  <ol class="steps">
-    {% for step in guided %}
-      <li>
-        <h2><span class="step-num">{{ loop.index }}</span> {{ step.title }}</h2>
-        <p class="muted">{{ step.claim }}</p>
-        <form method="post" action="/runs" data-busy>
-          <input type="hidden" name="scenario" value="{{ step.scenario }}">
-          <button type="submit" data-busy-label="Starting…">Open this step</button>
-        </form>
-      </li>
-    {% endfor %}
-  </ol>
+  <section>
+    <h2>Guided scenarios</h2>
+    <ol class="steps">
+      {% for step in guided %}
+        <li>
+          <span class="step-num">{{ loop.index }}</span>
+          <div>
+            <h2>{{ step.title }}</h2>
+            <p>{{ step.claim }}</p>
+          </div>
+          <form method="post" action="/runs" data-busy>
+            <input type="hidden" name="scenario" value="{{ step.scenario }}">
+            <button type="submit" data-busy-label="Starting…">Open</button>
+          </form>
+        </li>
+      {% endfor %}
+    </ol>
+  </section>
 
-  <p class="note">
-    Every number below the fold comes from the same backend report the API returns.
-    Nothing is precomputed for the walkthrough.
-  </p>
+  <section>
+    <h2>All scenarios</h2>
+    <p class="muted small">
+      {{ scenarios | length }} scenarios. The guided ones above are three of them.
+    </p>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Scenario</th>
+            <th>What it shows</th>
+            <th class="num">Refunds</th>
+            <th class="num">Deliveries</th>
+            <th class="num">Dropped</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for scenario in scenarios %}
+            <tr>
+              <td>
+                {{ scenario.label }}
+                <br><code class="muted small">{{ scenario.name }}</code>
+              </td>
+              <td class="muted">{{ scenario.notes }}</td>
+              <td class="num">{{ scenario.refunds }}</td>
+              <td class="num">{{ scenario.deliveries }}</td>
+              <td class="num">{{ scenario.dropped }}</td>
+              <td class="num">
+                <form method="post" action="/runs" data-busy>
+                  <input type="hidden" name="scenario" value="{{ scenario.name }}">
+                  <button type="submit" data-busy-label="Starting…">Start</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
 
-  <h2 style="margin-top:2rem">All scenarios</h2>
-  <p class="muted small">
-    The guided steps are three of {{ scenarios | length }}. Every one stays available.
-  </p>
-  {% for scenario in scenarios %}
-    <article class="card">
-      <div>
-        <h2>{{ scenario.label }}</h2>
-        <p class="muted">{{ scenario.notes }}</p>
-        <p class="muted small">
-          {{ scenario.refunds }} refunds · {{ scenario.deliveries }} scheduled deliveries ·
-          {{ scenario.dropped }} dropped events · <code>{{ scenario.name }}</code>
-        </p>
-      </div>
-      <form method="post" action="/runs" data-busy>
-        <input type="hidden" name="scenario" value="{{ scenario.name }}">
-        <button type="submit" data-busy-label="Starting…">Start</button>
-      </form>
-    </article>
-  {% endfor %}
-
-  <p class="muted small" style="margin-top:1.5rem">
-    Version {{ version }}. Reference data only, no real payments.
-  </p>
+  <section>
+    <h2>About this data</h2>
+    <p>
+      Provider notifications are simulated, and the provider lookup is simulated too.
+      No merchant payment is processed and no live provider is contacted.
+    </p>
+    <p class="note">
+      A lookup is not part of normal duplicate handling. Duplicate deliveries are
+      settled by the event id alone. The lookup exists to supply information that a
+      dropped notification never carried.
+    </p>
+  </section>
 {% endblock %}

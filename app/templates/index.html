@@ -1,37 +1,71 @@
 {% extends "base.html" %}
-{% block title %}Scenarios · Refund Consistency Lab{% endblock %}
+{% block title %}Refund Consistency{% endblock %}
 {% block content %}
-  <h1>Refund Consistency Lab</h1>
-  <p class="muted">
-    The same scheduled notifications reach a naive processor and a protected one.
-    Pick a scenario, then step or run it and compare the two records.
+  <p class="eyebrow">Refund notification processing</p>
+  <h1>A refund record you can defend when the notifications disagree.</h1>
+  <p class="lede">
+    Refund Consistency maintains refund records from provider notifications, so
+    duplicates, late arrivals and conflicting evidence resolve to one answer you can
+    explain.
   </p>
 
-  <h2>Scenarios</h2>
-  <p class="muted">
-    New here? The <a href="/walkthrough">guided walkthrough</a> covers three of these
-    with an explanation of what to look for.
-  </p>
-  {% for scenario in scenarios %}
-    <article class="card">
-      <div>
-        <h2>{{ scenario.label }}</h2>
-        <p class="muted">{{ scenario.notes }}</p>
-        <p class="muted small">
-          {{ scenario.refunds }} refunds · {{ scenario.deliveries }} scheduled deliveries ·
-          {{ scenario.dropped }} dropped events · <code>{{ scenario.name }}</code>
-        </p>
-      </div>
-      <form method="post" action="/runs" data-busy>
-        <input type="hidden" name="scenario" value="{{ scenario.name }}">
-        <button type="submit" data-busy-label="Starting…">Start</button>
-      </form>
-    </article>
-  {% else %}
-    <p class="muted">No fixtures were found. Check the fixtures directory.</p>
-  {% endfor %}
+  <div class="actions">
+    <a class="btn" href="/walkthrough">Try the demo</a>
+    <a class="btn secondary" href="/integrate">Integrate</a>
+  </div>
 
-  <p class="muted small" style="margin-top:1.5rem">
-    Version {{ version }}. Reference data only, no real payments.
+  <section>
+    <h2>What it does and does not do</h2>
+    <table>
+      <tbody>
+        <tr>
+          <th scope="row">Maintains</th>
+          <td>One record per refund, from the notifications you deliver, with the
+            evidence behind every decision.</td>
+        </tr>
+        <tr>
+          <th scope="row">Does not move money</th>
+          <td>No payment execution, no outgoing refunds, no provider credentials.
+            It records and classifies; the payment system still moves the funds.</td>
+        </tr>
+        <tr>
+          <th scope="row">Shows its work</th>
+          <td>Confirmed amounts, amounts under review, and the reason a refund was
+            not settled.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>How a notification becomes a record</h2>
+    <p>
+      A processor that keys on the provider event id handles duplicate deliveries
+      without asking anyone. The same event id is applied once, however many times it
+      arrives. That is what this service does.
+    </p>
+    <p>
+      The demo also includes a deliberately naive baseline that counts every
+      notification instead. It is there to show the failure, not to describe the
+      product. A lookup exists for a different problem: a notification that never
+      arrived cannot be recovered by rereading what you have.
+    </p>
+  </section>
+
+  <section>
+    <h2>Where the demo fits</h2>
+    <p>
+      The simulator is the public demonstration of the service, not a second product.
+      Every figure in it is produced by the same processing rules the API exposes.
+      Provider notifications and provider lookups in the demo are simulated.
+    </p>
+    <p class="note">
+      No real merchant payments are processed here. There are no customers, no
+      accounts and no live provider connections.
+    </p>
+  </section>
+
+  <p class="muted small" style="margin-top:2.5rem">
+    Version {{ version }}.
   </p>
 {% endblock %}
