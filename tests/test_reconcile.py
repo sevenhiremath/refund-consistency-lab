@@ -369,3 +369,65 @@ def test_a_different_build_changes_the_digest(store):
 
     assert before.body["comparison"] == after.body["comparison"]
     assert before.digest != after.digest
+
+
+def test_lookup_at_the_second_delivery_tick_is_refused_while_the_first_is_pending(store):
+    """The next unapplied delivery decides the limit, not any later delivery tick.
+
+    Schedule is tick 2 then tick 3. With neither applied, a lookup at tick 3 would
+    leave the delivery at tick 2 impossible to apply without going backwards.
+    """
+    runner, run_id = start(store, "pending_after_success")
+
+    with pytest.raises(ValueError, match="next scheduled delivery at tick 2"):
+        runner.reconcile(run_id, "R1", 3)
+
+    state = store.run_state(run_id)
+    assert state["tick"] == 0
+    assert state["cursor"] == 0
+    assert store.actions(run_id) == ()
+    assert store.finding_keys(run_id) == ()
+
+    # Stepping is still possible, and only after that does tick 3 become valid.
+    assert runner.step(run_id, 0).event_id == "E8"
+    assert runner.reconcile(run_id, "R1", 3).recorded is True
+    assert runner.step(run_id, 1).event_id == "E7"
+    assert runner.report(run_id).body["progress"]["finished"] is True
+
+
+def test_lookup_three_is_rejected_then_the_run_completes(store):
+    """Same case through the page and API error boundary."""
+    runner, run_id = start(store, "pending_after_success")
+
+    with pytest.raises(ValueError):
+        runner.reconcile(run_id, "R1", 3)
+
+    assert runner.step(run_id, 0).applied is True
+    done = runner.run_to_end(run_id, 1)
+    assert done.body["progress"]["finished"] is True
+    assert done.body["comparison"]["refunds"][0]["protected_status"] == "succeeded"
+
+
+def test_api_rejects_lookup_at_the_second_delivery_tick(client):
+    run_id = client.post("/api/runs", json={"scenario": "pending_after_success"}).json()["run_id"]
+
+    rejected = client.post(
+        "/api/runs/%s/reconcile" % run_id, json={"refund_id": "R1", "tick": 3}
+    )
+    assert rejected.status_code == 400
+    assert "next scheduled delivery at tick 2" in rejected.json()["error"]
+
+    assert client.get("/api/runs/%s" % run_id).json()["actions"] == []
+
+    stepped = client.post("/api/runs/%s/step" % run_id, json={"expected_cursor": 0})
+    assert stepped.status_code == 200
+    assert stepped.json()["event_id"] == "E8"
+
+    ok = client.post(
+        "/api/runs/%s/reconcile" % run_id, json={"refund_id": "R1", "tick": 3}
+    )
+    assert ok.status_code == 200
+
+    finished = client.post("/api/runs/%s/run" % run_id, json={"expected_cursor": 1})
+    assert finished.status_code == 200
+    assert finished.json()["progress"]["finished"] is True

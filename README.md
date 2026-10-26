@@ -227,10 +227,13 @@ refund at a logical tick. The tick defaults to the run clock and cannot move bac
 
 A lookup also cannot move the clock past a scheduled delivery that has not been applied
 yet. Example: a fixture has deliveries at tick 2 and tick 3, and the run is at tick 0
-with none applied. A lookup at tick 5 is refused, because the clock would jump past
-tick 2 and applying tick 2 would then look like going backwards, leaving the run unable
-to advance. A lookup at tick 2 or 3 is allowed, and once nothing is left to deliver any
-later tick works. A refused lookup writes nothing: no observation, action, finding or
+with neither applied. Only ticks up to the **next** delivery count, so a lookup at tick
+2 is allowed and a lookup at tick 3 is refused, even though tick 3 is a delivery tick
+later in the schedule. Allowing tick 3 would leave the run unable to apply the delivery
+at tick 2, because that would move the clock backwards. After the delivery at tick 2 is
+applied, the next unapplied delivery is tick 3, so a lookup at tick 3 becomes valid.
+Once nothing is left to deliver any later tick works. A refused lookup writes nothing:
+no observation, action, finding or
 clock change. The page and the API both answer with a 400 that names the next delivery
 tick.
 
