@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: refund-consistency-lab
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: LAB_DB_PATH
+        value: /srv/var/lab.db

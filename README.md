@@ -54,25 +54,55 @@ survive a container restart.
 
 ## Hosting
 
-The target is one app instance with SQLite in a single container.
+Target is one Render web service running this Docker image on the free plan, with
+SQLite inside the container. No managed database, no second instance.
 
-**Public deployment is currently blocked.** Hugging Face rejects Docker Space creation
-for a free account with `402 Payment Required`, because Gradio and Docker Spaces on
-`cpu-basic` need a PRO plan. Static Spaces are free but cannot run this app. No second
-provider was tried.
+**Deployment is blocked on account access.** There is no Render API key or linked
+service on this machine, so the service could not be created. The exact next step is
+below.
 
-The image itself is self contained and was verified locally:
+Settings, also encoded in `render.yaml` as a Blueprint:
+
+- runtime Docker, Dockerfile at the repo root
+- one instance, free plan
+- health check path `/health`
+- listen on `0.0.0.0` and on the port from `PORT`, which Render sets at runtime
+- SQLite at `/srv/var/lab.db`, in the container's writable layer
+- the commit comes from `RENDER_GIT_COMMIT`, which Render injects, so `/health`
+  reports the commit Render actually built
+
+### Next step
+
+Either of these, then the service exists:
+
+1. In the Render dashboard choose New, then Blueprint, and select this repository.
+   Render reads `render.yaml` and creates the service with the settings above.
+2. Create a Render API key and make it available as `RENDER_API_KEY`, then the service
+   can be created from the command line.
+
+### What storage does and does not survive
+
+Runtime files live in the container's writable layer, and what happens to that layer
+depends on how the container is handled.
+
+- `docker restart` on the same container keeps the layer, so a local restart keeps
+  the database.
+- Replacing the container does not. A redeploy, a new image, or a platform restart
+  that recreates the container starts from the image, so stored runs are gone.
+- The free instance sleeps after a period of inactivity and starts again on the next
+  request. Do not rely on stored runs surviving that.
+
+Every run is short lived and starts from a bundled fixture, so losing stored runs
+costs history, not the demo. A restart during a demo means the link needs one request
+to wake, and any run created before it must be started again.
+
+### Other notes
 
 - **One instance, one SQLite file.** No queue, no worker, no external database.
-- **Data does not survive a restart.** The container filesystem is discarded on
-  restart or rebuild, so runs created before a restart are gone. Every run is short
-  lived and starts from a bundled fixture, so this affects saved runs, not the demo.
 - **WAL on a mounted network volume is unverified.** SQLite needs shared memory for
   WAL, and network-backed volumes can fall back to a rollback journal. That is why
   `/health` distinguishes `degraded` from `error` instead of failing the whole site
   when `journal_mode` is not `wal`.
-- **Port and user.** The container listens on 7860 and runs as UID 1000, which is what
-  container space hosts expect.
 - **No browser tooling in the image.** Playwright is a dev extra and `tools/` is not
   copied, so the runtime has no test dependency.
 

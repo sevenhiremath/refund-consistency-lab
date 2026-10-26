@@ -47,9 +47,11 @@ Cost: one writer at a time. The concurrency proof shows constraints not throughp
 
 Chosen over a managed database plus an app service.
 Why: fewer moving parts in 24 hours and the lab has no data worth keeping.
-Cost: the free host disk is ephemeral so a restart loses in flight runs. We do not
-claim durability from the public link. WAL on an attached bucket is unverified and
-the health check reports degraded instead of failing when WAL is refused.
+Cost: runtime files sit in the container writable layer. Replacing the container
+loses them, so a redeploy or a platform restart that recreates it clears stored runs.
+A plain `docker restart` on the same container does not. We claim no durability from
+the public link. WAL on an attached network volume is unverified and the health check
+reports degraded instead of failing when WAL is refused.
 
 ## Outbound in doubt is a headless test
 

@@ -21,8 +21,22 @@ class Settings:
     def from_env(cls) -> "Settings":
         return cls(
             db_path=Path(os.environ.get("LAB_DB_PATH", str(DEFAULT_DB_PATH))),
-            git_sha=os.environ.get("LAB_GIT_SHA") or _git_sha_fallback(),
+            git_sha=_runtime_sha(),
         )
+
+
+def _runtime_sha() -> str:
+    """Identify the running source commit.
+
+    LAB_GIT_SHA is baked at image build time for hosts that do not tell us. Render
+    injects RENDER_GIT_COMMIT for the commit it deployed. An empty or placeholder
+    value falls through so an image default never masks the platform value.
+    """
+    for key in ("LAB_GIT_SHA", "RENDER_GIT_COMMIT"):
+        value = os.environ.get(key, "").strip()
+        if value and value.lower() != "unknown":
+            return value
+    return _git_sha_fallback()
 
 
 def _git_sha_fallback() -> str:

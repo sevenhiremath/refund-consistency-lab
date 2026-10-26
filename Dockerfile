@@ -5,7 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     LAB_DB_PATH=/srv/var/lab.db \
     PORT=7860
 
-# Container hosts (Hugging Face Spaces among them) run the image as UID 1000.
+# Run as an unprivileged user. Some hosts also expect UID 1000.
 RUN useradd --create-home --uid 1000 app
 
 WORKDIR /srv
@@ -15,8 +15,9 @@ COPY --chown=app:app app ./app
 # The scenario fixtures ship with the image. Without them the picker is empty.
 COPY --chown=app:app fixtures ./fixtures
 
-# Build-time SHA so /health can identify the running commit without git in the image.
-ARG GIT_SHA=unknown
+# Optional build-time SHA. Left empty so a platform value such as RENDER_GIT_COMMIT
+# is not masked by an image default.
+ARG GIT_SHA=
 ENV LAB_GIT_SHA=${GIT_SHA}
 
 RUN pip install --no-cache-dir . \
