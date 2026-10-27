@@ -14,6 +14,8 @@ from app.api import router as api_router
 from app.config import VERSION, Settings
 from app.domain.money import format_paise
 from app.errors import LabError
+from app.hyperswitch import AdapterError
+from app.hyperswitch_api import router as hyperswitch_router
 from app.integration import IntegrationError, IntegrationService
 from app.integration_api import router as integration_router
 from app.lab_service import LabService
@@ -97,6 +99,10 @@ def create_app(settings: Settings | None = None, fixtures_dir: Path | None = Non
             status_code=exc.status_code,
         )
 
+    @app.exception_handler(AdapterError)
+    async def adapter_error(request: Request, exc: AdapterError):
+        return JSONResponse({"error": exc.message}, status_code=exc.status)
+
     @app.exception_handler(IntegrationError)
     async def integration_error(request: Request, exc: IntegrationError):
         return JSONResponse(
@@ -108,6 +114,7 @@ def create_app(settings: Settings | None = None, fixtures_dir: Path | None = Non
     app.include_router(pages_router)
     app.include_router(api_router)
     app.include_router(integration_router)
+    app.include_router(hyperswitch_router)
     return app
 
 

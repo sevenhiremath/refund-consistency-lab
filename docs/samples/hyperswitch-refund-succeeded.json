@@ -1,0 +1,18 @@
+{
+  "_note": "Documented sample, not captured from a live Hyperswitch instance. Field names come from the outgoing webhook docs (merchant_id, event_id, event_type, content) and the refund object schema (refund_id, payment_id, amount, currency, status). Hyperswitch amounts are in minor units, so an INR amount is paise.",
+  "merchant_id": "merchant_demo_1",
+  "event_id": "evt_hs_demo_refund_1",
+  "event_type": "refund_succeeded",
+  "content": {
+    "type": "refund_details",
+    "object": {
+      "refund_id": "ref_demo_1",
+      "payment_id": "pay_demo_1",
+      "amount": 30000,
+      "currency": "INR",
+      "status": "succeeded",
+      "connector": "fauxpay"
+    }
+  },
+  "timestamp": "2026-10-27T12:00:00Z"
+}

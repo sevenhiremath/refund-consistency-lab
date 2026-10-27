@@ -349,6 +349,17 @@ class Store:
     def run_kind(self, run_id: str) -> str:
         return self.run_info(run_id)["kind"]
 
+    def event_delivery_count(self, run_id: str, event_id: str) -> int:
+        """How many deliveries of one provider event have been recorded."""
+        conn = self._connect()
+        try:
+            return conn.execute(
+                "SELECT COUNT(*) FROM deliveries WHERE run_id = ? AND event_id = ?",
+                (run_id, event_id),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+
     def refund_exists(self, run_id: str, refund_id: str) -> bool:
         conn = self._connect()
         try:

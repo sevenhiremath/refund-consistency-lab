@@ -375,6 +375,38 @@ server additionally needs that server started with `INTEGRATION_API_KEY` set; wi
 it every `/v1` path answers 404 and the example exits with a clear message rather than
 fabricating a result.
 
+### Hyperswitch adapter
+
+`POST /webhooks/hyperswitch` accepts a Hyperswitch refund webhook, verifies it and
+hands it to the same processing service every other delivery uses. No refund rules are
+duplicated in the adapter.
+
+- **Signature.** HMAC-SHA512 over the exact raw request body with
+  `HYPERSWITCH_WEBHOOK_SECRET`, hex encoded in `X-Webhook-Signature-512`, compared in
+  constant time before the body is parsed. A tampered body and a wrong digest are both
+  401 with nothing written.
+- **Availability.** The route answers 404 unless the secret, workspace, merchant and
+  payment are all configured. `/v1` bearer auth is unchanged and separate.
+- **Binding.** `HYPERSWITCH_WORKSPACE_ID`, `HYPERSWITCH_MERCHANT_ID` and
+  `HYPERSWITCH_PAYMENT_ID` are configuration, not payload. A body naming another
+  merchant or payment is 403, and a `workspace_id` field in the body is ignored.
+- **Identity.** `event_id`, `refund_id`, amount and currency come from the payload
+  unchanged. One attempt id is generated per received delivery, `hs:<event_id>:<n>`,
+  so three deliveries of one event are recorded as three attempts and one event.
+- **Preconditions.** The payment and refund intent must already exist. A notification
+  never registers either and never rewrites an intended amount.
+- **Statuses and currency.** Only `refund_succeeded` and `refund_failed` are accepted,
+  and `event_type` must agree with `content.object.status`. `refund_review`, any other
+  status, and any currency other than INR are refused with 422 rather than coerced.
+  An INR amount that differs from the intent is passed through, so the existing
+  processor records it as review evidence.
+
+`docs/samples/hyperswitch-refund-succeeded.json` is a **documented sample**, built from
+the official outgoing webhook envelope and refund object schema. It was not captured
+from a live Hyperswitch instance. The adapter is verified against that documented
+payload and is **not** live Hyperswitch verified. A genuine sandbox delivery still
+needs an account, an INR capable connector and a public HTTPS endpoint.
+
 ### Measured against a live server
 
 Run over HTTP against a local server started with a disposable test key, one
