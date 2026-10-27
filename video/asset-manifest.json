@@ -1,7 +1,7 @@
 {
-  "status": "assembly; not submission-ready",
+  "status": "all proof recordings and original narration imported; final rendering; music not supplied",
   "fps": 30,
-  "duration_seconds": 117,
+  "duration_seconds": 116,
   "assets": [
     {
       "file": "integrate.png",
@@ -42,20 +42,213 @@
       "status": "visually inspected; authentic existing screenshot",
       "bytes": 69422,
       "sha256": "6787e15a469558d1b56cd6c522eae350643f7c3585d480a5f5aafb95a64033fe"
+    },
+    {
+      "file": "01-duplicates.mp4",
+      "source": "user-provided original",
+      "bytes": 13702868,
+      "sha256": "39e7b310d81350185d76245b9787ca115a83f16b0c5616b920d0263b53eef02a",
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1920,
+            "height": 1080
+          },
+          {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "sample_rate": "48000"
+          }
+        ],
+        "format": {
+          "duration": "18.333333"
+        }
+      }
+    },
+    {
+      "file": "02-recovery.mp4",
+      "source": "user-provided original",
+      "bytes": 6340056,
+      "sha256": "cae31e0b1e57162b9ebc1d03ca5e583dc1949437ec4b800fb3eefb52aa97d62c",
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1920,
+            "height": 1080
+          },
+          {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "sample_rate": "48000"
+          }
+        ],
+        "format": {
+          "duration": "8.533333"
+        }
+      }
+    },
+    {
+      "file": "03-conflict.mp4",
+      "source": "user-provided original",
+      "bytes": 10296785,
+      "sha256": "7b41f9b91aa86c498533657b93c5178b2ddaab5a8879bc53aa7cab77cb788a70",
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1920,
+            "height": 1080
+          },
+          {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "sample_rate": "48000"
+          }
+        ],
+        "format": {
+          "duration": "13.800000"
+        }
+      }
+    },
+    {
+      "file": "04-integration.mp4",
+      "source": "user-provided original",
+      "bytes": 22642569,
+      "sha256": "8af670bf5a172b1a20c1ff0bbde62ddca4915262bc033349bf128b5c532b4c61",
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1920,
+            "height": 1080
+          },
+          {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "sample_rate": "48000"
+          }
+        ],
+        "format": {
+          "duration": "30.233333"
+        }
+      }
+    },
+    {
+      "file": "05-adapter.mp4",
+      "source": "user-provided original",
+      "bytes": 7041275,
+      "sha256": "5b5b4368f5662d26b1fca8a091c4a74ed7fa26c2685645feb45be97f2fa939f6",
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1920,
+            "height": 1080
+          },
+          {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "sample_rate": "48000"
+          }
+        ],
+        "format": {
+          "duration": "9.466667"
+        }
+      }
+    },
+    {
+      "file": "06-alan.mp4",
+      "source": "user-provided original",
+      "bytes": 13001327,
+      "sha256": "aca3b9423e3023549f195947c6a1a8e25cca2adc909eac8c5e5f9fcce028a385",
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1920,
+            "height": 1080
+          },
+          {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "sample_rate": "48000"
+          }
+        ],
+        "format": {
+          "duration": "17.400000"
+        }
+      }
+    },
+    {
+      "file": "voice.mp4",
+      "source": "user-provided original",
+      "bytes": 997746,
+      "sha256": "949d84ac40a2ad35d7c135bf83ff8b8596ea529a781cc6fe9c9b4db925c9f2e4",
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "sample_rate": "44100"
+          }
+        ],
+        "format": {
+          "duration": "115.955669"
+        }
+      }
+    },
+    {
+      "file": "voice-normalized.wav",
+      "source": "voice.mp4 via FFmpeg highpass=70Hz and loudnorm I=-16 TP=-1.5 LRA=9; speed unchanged",
+      "bytes": 11132282,
+      "sha256": "bd0705a7b7759019f93016c8fd60d2d91d2146141b8ffa479812bc3521b1e614",
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "pcm_s16le",
+            "codec_type": "audio",
+            "sample_rate": "48000"
+          }
+        ],
+        "format": {
+          "duration": "115.960458"
+        }
+      }
     }
   ],
   "missing": [
-    "app-proof.mp4 (including 600/300 intermediate)",
-    "adapter-proof.mp4",
-    "alan-proof.mp4 or actual task still",
-    "voice.wav or voice.m4a",
-    "music track and any required credit",
+    "music track (omitted for deadline)",
     "official organizer links"
   ],
   "evidence": {
     "test_source": "tests/test_integration_api.py::test_repeated_success_notifications_confirm_one_amount",
     "test_executed": false,
-    "commit": "ac2020244e58f14eb21168cdfb01d87ac54732f3"
+    "commit": "ac2020244e58f14eb21168cdfb01d87ac54732f3",
+    "alan": "06-alan.mp4 is authentic adapter follow-up conversation; paired with genuine integration test source and historical commit excerpt. It is not represented as the original integration-API task chat."
   },
   "checks": {
     "links": {
@@ -84,6 +277,26 @@
       "audio": "aac, 48kHz stereo; silent pending voice",
       "decode_check": "ffmpeg full-file decode: no errors",
       "visual_review": "sampled opening, architecture, amounts, conflict, placeholders, test and commit frames; narration and synchronized captions pending"
+    },
+    "narration": {
+      "original_format": "audio-only MP4, AAC",
+      "original_duration_seconds": 115.955669,
+      "timeline_seconds": 116,
+      "speed": 1,
+      "peak_dbfs": -1.5,
+      "caption_alignment": "local cached faster-whisper base.en measured segments; technical names manually normalized; listening review required",
+      "silence": "natural pauses retained to preserve phrasing and synchronization",
+      "screen_audio": "muted in all media components",
+      "music": "not provided; omitted"
+    },
+    "complete_rough": {
+      "file": "out/hisaab-complete-rough.mp4",
+      "duration_seconds": 116,
+      "width": 1280,
+      "height": 720,
+      "video": "h264",
+      "audio": "aac 48kHz",
+      "status": "all real recordings and narration; no missing-evidence cards"
     }
   }
 }

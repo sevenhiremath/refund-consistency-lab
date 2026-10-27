@@ -1,0 +1,127 @@
+1
+00:00:00,370 --> 00:00:02,390
+Imagine a three hundred rupee refund.
+
+2
+00:00:03,070 --> 00:00:03,690
+Simple, right?
+
+3
+00:00:04,630 --> 00:00:07,830
+Now the same success notification arrives three times.
+
+4
+00:00:08,570 --> 00:00:11,190
+A naive backend records nine hundred rupees.
+
+5
+00:00:11,750 --> 00:00:15,230
+Not three payouts. Just one very wrong number.
+
+6
+00:00:15,870 --> 00:00:20,370
+And that’s before notifications start going missing or contradicting each other.
+
+7
+00:00:21,710 --> 00:00:23,270
+That’s why I built HISAAB.
+
+8
+00:00:23,730 --> 00:00:25,830
+It’s a Python backend using FastAPI.
+
+9
+00:00:25,830 --> 00:00:32,030
+Applications register refunds and send notifications through an authenticated API.
+
+10
+00:00:33,150 --> 00:00:39,490
+HISAAB handles duplicates, stores evidence using SQLite transactions and returns a refund status.
+
+11
+00:00:40,190 --> 00:00:40,610
+The dashboard?
+
+12
+00:00:41,170 --> 00:00:42,290
+That’s just a demo.
+
+13
+00:00:43,330 --> 00:00:44,090
+Watch this.
+
+14
+00:00:44,950 --> 00:00:48,010
+First notification: both processors show three hundred rupees.
+
+15
+00:00:48,390 --> 00:00:51,210
+Second: the naive processor says six hundred.
+
+16
+00:00:52,270 --> 00:00:52,710
+Third: nine hundred.
+
+17
+00:00:53,550 --> 00:00:55,250
+HISAAB? Still three hundred.
+
+18
+00:00:56,010 --> 00:00:59,790
+Three deliveries. One event. One correctly recorded refund.
+
+19
+00:01:02,240 --> 00:01:04,020
+What if a notification never arrives?
+
+20
+00:01:04,640 --> 00:01:10,580
+HISAAB keeps the outcome unknown until a simulated provider lookup supplies evidence.
+
+21
+00:01:11,480 --> 00:01:14,000
+And when success and failure disagree, it doesn’t guess.
+
+22
+00:01:14,780 --> 00:01:16,440
+It keeps both claims under review.
+
+23
+00:01:17,860 --> 00:01:20,360
+I also built a Hyperswitch webhook adapter.
+
+24
+00:01:21,220 --> 00:01:24,060
+This signed sample goes through the actual HTTP endpoint.
+
+25
+00:01:24,060 --> 00:01:28,620
+Duplicates leave the total unchanged, and invalid signatures get rejected.
+
+26
+00:01:29,420 --> 00:01:32,340
+It’s a local test, not a live provider delivery.
+
+27
+00:01:33,220 --> 00:01:36,240
+Alan helped me build this in smaller checkpoints.
+
+28
+00:01:36,940 --> 00:01:41,000
+Here’s the integration API task, the duplicate-handling test and its Git commits.
+
+29
+00:01:41,720 --> 00:01:43,900
+Independent review caught a few gaps.
+
+30
+00:01:44,540 --> 00:01:49,760
+I brought these findings back to Alan and verified the fixes with regression tests.
+
+31
+00:01:50,980 --> 00:01:53,060
+HISAAB. Ek refund. Sau nakhre.
+
+32
+00:01:53,060 --> 00:01:55,140
+Every refund accounted for.

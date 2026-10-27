@@ -29,3 +29,6 @@ Repository: https://github.com/sevenhiremath/refund-consistency-lab
 Demo: https://refund-consistency-lab.onrender.com
 
 Video link: [add your uploaded video URL]. Organizer/form links pending from the user. Upload and submission remain the user's actions.
+
+
+The original silent assembly remains in `out/hisaab-backup-assembly.mp4`. The complete voiced 720p fallback is `out/hisaab-complete-rough.mp4`; reproduce with `python rough.py`. Final narration text is `SCRIPT-FINAL.md`. The original `voice.mp4` is audio-only MP4/AAC; FFmpeg converts it to 48 kHz PCM WAV with a 70 Hz high-pass and loudnorm I=-16 TP=-1.5 LRA=9, with no tempo change. The final MP4 uses the original narration timeline, including its natural pauses. No background track has been invented.
