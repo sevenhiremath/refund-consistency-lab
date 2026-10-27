@@ -392,12 +392,23 @@ class Store:
 
     # -- admission -------------------------------------------------------
 
-    def admit(self, run_id: str, refund: RefundIntent) -> AdmissionResult:
+    def admit(
+        self,
+        run_id: str,
+        refund: RefundIntent,
+        max_refunds: int | None = None,
+    ) -> AdmissionResult:
         """Admit a refund inside one write transaction.
 
         The cap check and the insert share the transaction and the transaction holds
         the write lock first, so two concurrent requests cannot both read 400 of
         1000 and both admit 600.
+
+        The refund count limit is checked here too, inside the same transaction and
+        before the insert. Checking it in the caller would let two concurrent
+        registrations both pass and leave the workspace one over the limit. An
+        identical retry is still admitted, because the domain returns
+        ``already_admitted`` before the count is considered.
         """
         with self._write() as conn:
             row = conn.execute(
@@ -412,6 +423,13 @@ class Store:
             result = admit(payment, intents, refund)
 
             if result.accepted and result.reason == "accepted":
+                existing = len(
+                    [i for i in intents if i.payment_id == payment.payment_id]
+                )
+                if max_refunds is not None and existing >= max_refunds:
+                    return AdmissionResult(
+                        False, "refund_limit_reached", tuple(intents)
+                    )
                 conn.execute(
                     """
                     INSERT INTO refund_intents

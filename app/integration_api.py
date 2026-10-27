@@ -153,7 +153,7 @@ def register_refund(
         return JSONResponse(payload, status_code=200)
     if result.reason == "over_refund":
         return JSONResponse(payload, status_code=422)
-    if result.reason in ("refund_id_conflict", "unknown_payment"):
+    if result.reason in ("refund_id_conflict", "unknown_payment", "refund_limit_reached"):
         return JSONResponse(payload, status_code=409)
     return JSONResponse(payload, status_code=400)
 

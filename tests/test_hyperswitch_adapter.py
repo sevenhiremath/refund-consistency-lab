@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
-from app.hyperswitch import sign
+from app.hyperswitch import sign, verify
 from app.main import create_app
 
 SAMPLE = pathlib.Path(__file__).resolve().parent.parent / "docs" / "samples" / "hyperswitch-refund-succeeded.json"
@@ -285,3 +285,52 @@ def test_v1_bearer_auth_is_unchanged(app_client, monkeypatch):
         ).status_code
         == 404
     )
+
+
+# -- hostile headers and bodies ------------------------------------------
+
+
+def test_non_ascii_signature_is_rejected_without_raising():
+    # http clients refuse to send this header as ASCII, but a raw request can carry
+    # it, and uvicorn decodes header bytes as latin-1. verify must not raise.
+    signature = "\u00e9" * 16
+
+    assert verify(b"{}", signature, SECRET) is False
+
+
+def test_invalid_utf8_body_is_rejected_with_400(app_client, monkeypatch):
+    workspace_id = prepare(app_client, monkeypatch)
+    raw = b'{"merchant_id":"merchant_demo_1","event_id":"evt\xff\xfe"}'
+
+    response = post(app_client, raw)
+
+    assert response.status_code == 400
+    assert "UTF-8" in response.json()["error"]
+    assert status_of(app_client, workspace_id).confirmed_paise == 0
+
+
+def test_amount_beyond_the_supported_maximum_is_rejected(app_client, monkeypatch):
+    workspace_id = prepare(app_client, monkeypatch)
+    raw = sample_bytes(**{"content.object.amount": 2 ** 80})
+
+    response = post(app_client, raw)
+
+    assert response.status_code == 422
+    assert "maximum" in response.json()["error"]
+    state = status_of(app_client, workspace_id)
+    assert state.confirmed_paise == 0
+    assert app_client.app.state.integration.store.findings(workspace_id) == ()
+    assert app_client.app.state.integration.store.refund_count(workspace_id) == 1
+
+
+def test_rejections_leave_deliveries_and_state_untouched(app_client, monkeypatch):
+    workspace_id = prepare(app_client, monkeypatch)
+    store = app_client.app.state.integration.store
+    before = store.event_delivery_count(workspace_id, "evt_hs_demo_refund_1")
+
+    post(app_client, sample_bytes(), signature="0" * 128)
+    post(app_client, b"\xff\xfe not json")
+
+    assert store.event_delivery_count(workspace_id, "evt_hs_demo_refund_1") == before
+    assert status_of(app_client, workspace_id).confirmed_paise == 0
+    assert store.findings(workspace_id) == ()

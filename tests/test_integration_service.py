@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from pathlib import Path
 
 import pytest
@@ -321,3 +322,52 @@ def test_demo_runs_still_work(store):
     report = lab.report(demo)
     assert report.body["comparison"]["protected_confirmed_paise"] == 30_000
     assert report.body["comparison"]["naive_total_paise"] == 90_000
+
+
+def test_refund_limit_holds_under_concurrent_registration(store, service):
+    """49 refunds, then two concurrent registrations. Exactly one may land."""
+    created = workspace(service, captured=1_000_000)
+    ws = created.workspace_id
+    for index in range(49):
+        result = service.register_refund(ws, "R%d" % index, 100)
+        assert result.accepted is True
+
+    barrier = threading.Barrier(2)
+    results = []
+    errors = []
+
+    def register(refund_id):
+        try:
+            barrier.wait(timeout=10)
+            results.append(service.register_refund(ws, refund_id, 100))
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=register, args=("RA",)),
+               threading.Thread(target=register, args=("RB",))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=20)
+
+    assert not errors, errors
+    assert len(results) == 2
+    accepted = [result for result in results if result.accepted]
+    rejected = [result for result in results if not result.accepted]
+    assert len(accepted) == 1
+    assert len(rejected) == 1
+    assert rejected[0].reason == "refund_limit_reached"
+    assert store.refund_count(ws) == 50
+
+
+def test_identical_retry_still_works_at_the_limit(store, service):
+    created = workspace(service, captured=1_000_000)
+    ws = created.workspace_id
+    for index in range(50):
+        service.register_refund(ws, "R%d" % index, 100)
+
+    again = service.register_refund(ws, "R0", 100)
+
+    assert again.accepted is True
+    assert again.reason == "already_admitted"
+    assert store.refund_count(ws) == 50

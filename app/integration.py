@@ -115,14 +115,11 @@ class IntegrationService:
         self, workspace_id: str, refund_id: str, amount_paise: int
     ) -> AdmissionResult:
         workspace = self._workspace(workspace_id)
-        already = self.store.refund_exists(workspace_id, refund_id)
-        if not already and self.store.refund_count(workspace_id) >= MAX_REFUNDS_PER_WORKSPACE:
-            raise IntegrationError(
-                409,
-                "workspace refund limit reached (%d)" % MAX_REFUNDS_PER_WORKSPACE,
-            )
         intent = RefundIntent(refund_id, workspace.payment_id, amount_paise)
-        return self.store.admit(workspace_id, intent)
+        # The limit is enforced inside the admission transaction, not here.
+        return self.store.admit(
+            workspace_id, intent, max_refunds=MAX_REFUNDS_PER_WORKSPACE
+        )
 
     # -- processing ------------------------------------------------------
 

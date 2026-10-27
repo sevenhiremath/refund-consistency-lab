@@ -28,6 +28,11 @@ PAYMENT_ENV = "HYPERSWITCH_PAYMENT_ID"
 
 SUPPORTED_CURRENCY = "INR"
 
+# Same ceiling the integration API applies to a delivery amount, and well inside the
+# range SQLite can store as an integer. Anything larger is refused before it reaches
+# the processor.
+MAX_AMOUNT_PAISE = 1_000_000_000_000
+
 # Event type to the refund status it must agree with. `refund_review` is deliberately
 # absent: our status vocabulary has no review state, so that event is refused rather
 # than guessed into success or failure.
@@ -93,10 +98,18 @@ def sign(raw_body: bytes, secret: str) -> str:
 
 
 def verify(raw_body: bytes, signature: str, secret: str) -> bool:
-    """Constant-time check over the exact bytes received, before any parsing."""
+    """Constant-time check over the exact bytes received, before any parsing.
+
+    The header is compared as ASCII bytes. A header with non ASCII characters is not
+    a digest we could have produced, so it fails the check instead of raising.
+    """
     if not signature:
         return False
-    return hmac.compare_digest(sign(raw_body, secret), signature.strip().lower())
+    try:
+        provided = signature.strip().lower().encode("ascii")
+    except UnicodeEncodeError:
+        return False
+    return hmac.compare_digest(sign(raw_body, secret).encode("ascii"), provided)
 
 
 def _text(data: dict[str, Any], key: str, where: str) -> str:
@@ -109,7 +122,11 @@ def _text(data: dict[str, Any], key: str, where: str) -> str:
 def parse_notification(raw_body: bytes, config: AdapterConfig) -> RefundNotification:
     """Validate the envelope and translate it, without touching the database."""
     try:
-        data = json.loads(raw_body)
+        text = raw_body.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise AdapterError(400, "body is not valid UTF-8") from exc
+    try:
+        data = json.loads(text)
     except json.JSONDecodeError as exc:
         raise AdapterError(400, "body is not valid JSON") from exc
     if not isinstance(data, dict):
@@ -151,6 +168,12 @@ def parse_notification(raw_body: bytes, config: AdapterConfig) -> RefundNotifica
     amount = obj.get("amount")
     if isinstance(amount, bool) or not isinstance(amount, int) or amount <= 0:
         raise AdapterError(422, "content.object.amount must be a positive integer")
+    if amount > MAX_AMOUNT_PAISE:
+        raise AdapterError(
+            422,
+            "content.object.amount exceeds the supported maximum of %d paise"
+            % MAX_AMOUNT_PAISE,
+        )
 
     if event_type not in EVENT_STATUS:
         raise AdapterError(
