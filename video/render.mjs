@@ -1,0 +1,16 @@
+import {bundle} from '@remotion/bundler';
+import {selectComposition,renderMedia} from '@remotion/renderer';
+import {mkdirSync} from 'node:fs';
+import path from 'node:path';
+import {execFileSync} from 'node:child_process';
+const sample=process.argv.includes('sample');
+if(process.argv.includes('final'))execFileSync(process.execPath,['check.mjs','--final'],{stdio:'inherit'});
+const scale=process.argv.includes('720')?2/3:1;
+const browserExecutable=process.env.HISAAB_CHROME||'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+mkdirSync('out',{recursive:true});
+const serveUrl=await bundle({entryPoint:path.resolve('src/index.jsx'),publicDir:path.resolve('public')});
+const composition=await selectComposition({serveUrl,id:'Hisaab',browserExecutable});
+const outputLocation=path.resolve('out',sample?'sample-10s.mp4':process.argv.includes('final')?'hisaab-final.mp4':'hisaab-assembly.mp4');
+let last=-1;
+await renderMedia({serveUrl,composition,codec:'h264',audioCodec:'aac',pixelFormat:'yuv420p',crf:20,scale,outputLocation,browserExecutable,concurrency:4,...(sample?{frameRange:[600,899]}:{}),onProgress:({progress})=>{const percent=Math.floor(progress*10)*10;if(percent!==last){last=percent;process.stdout.write(` ${percent}%`);}}});
+console.log('\n'+outputLocation);

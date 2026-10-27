@@ -1,0 +1,77 @@
+{
+  "status": "assembly; not submission-ready",
+  "fps": 30,
+  "duration_seconds": 117,
+  "assets": [
+    {
+      "file": "integrate.png",
+      "source": "var/public/integrate.png",
+      "kind": "authentic existing screenshot",
+      "status": "visually inspected; authentic existing screenshot",
+      "bytes": 69422,
+      "sha256": "43a77e4b560bb8dff467f58eb613755a250f814fab59564e811aabc3b1230861"
+    },
+    {
+      "file": "duplicate-first.png",
+      "source": "var/dark/run-step-1.png",
+      "kind": "authentic existing screenshot",
+      "status": "visually inspected; authentic existing screenshot",
+      "bytes": 69806,
+      "sha256": "1d826c6f5b03943194a80e7b9af4530e33e58f8c31512c461d1990b7cf64a8b5"
+    },
+    {
+      "file": "duplicate-final.png",
+      "source": "var/public/duplicates-expanded.png",
+      "kind": "authentic existing screenshot",
+      "status": "visually inspected; authentic existing screenshot",
+      "bytes": 74303,
+      "sha256": "ce20fa031ea83dc075629bb007acec26287d898505c994d12d178b8865578a4e"
+    },
+    {
+      "file": "recovery.png",
+      "source": "var/public/recovery.png",
+      "kind": "authentic existing screenshot",
+      "status": "visually inspected; authentic existing screenshot",
+      "bytes": 70823,
+      "sha256": "019330270ef2fedfb44c349be1c8008e4b75719fa0cd5753beeda7b8ce4e4760"
+    },
+    {
+      "file": "conflict.png",
+      "source": "var/public/conflict.png",
+      "kind": "authentic existing screenshot",
+      "status": "visually inspected; authentic existing screenshot",
+      "bytes": 69422,
+      "sha256": "6787e15a469558d1b56cd6c522eae350643f7c3585d480a5f5aafb95a64033fe"
+    }
+  ],
+  "missing": [
+    "app-proof.mp4 (including 600/300 intermediate)",
+    "adapter-proof.mp4",
+    "alan-proof.mp4 or actual task still",
+    "voice.wav or voice.m4a",
+    "music track and any required credit",
+    "official organizer links"
+  ],
+  "evidence": {
+    "test_source": "tests/test_integration_api.py::test_repeated_success_notifications_confirm_one_amount",
+    "test_executed": false,
+    "commit": "ac2020244e58f14eb21168cdfb01d87ac54732f3"
+  },
+  "checks": {
+    "links": {
+      "https://github.com/sevenhiremath/refund-consistency-lab": 200,
+      "https://refund-consistency-lab.onrender.com": 200
+    },
+    "sample": {
+      "file": "out/sample-10s.mp4",
+      "duration_seconds": 10.048,
+      "width": 1920,
+      "height": 1080,
+      "fps": 30,
+      "video": "h264",
+      "audio": "aac (silent; voice pending)"
+    },
+    "backend_changed": false,
+    "fresh_test_run": false
+  }
+}

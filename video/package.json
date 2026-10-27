@@ -1,0 +1,8 @@
+{
+  "name": "hisaab-submission-video",
+  "private": true,
+  "type": "module",
+  "scripts": {"render": "node render.mjs", "sample": "node render.mjs sample", "check": "node check.mjs"},
+  "dependencies": {"@remotion/bundler": "4.0.373", "@remotion/renderer": "4.0.373", "remotion": "4.0.373", "react": "19.1.0", "react-dom": "19.1.0"},
+  "engines": {"node": ">=20"}
+}

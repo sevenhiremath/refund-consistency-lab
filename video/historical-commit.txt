@@ -1,0 +1,15 @@
+commit ac2020244e58f14eb21168cdfb01d87ac54732f3
+Author: Swayam Hiremath <180913714+sevenhiremath@users.noreply.github.com>
+Commit: Swayam Hiremath <180913714+sevenhiremath@users.noreply.github.com>
+
+    Expose the integration service over an authenticated API
+
+    Four routes under /v1 for a trusted backend: create a workspace, register a refund, submit a normalized delivery, and read protected status with evidence. The demo routes and pages are untouched.
+
+    Every route is gated by INTEGRATION_API_KEY in an Authorization bearer header. With no key configured the surface answers 404 while the public demonstration keeps working. The key is never read from a URL, echoed in a response or written to a file, and authorization runs before body validation so an unauthorized caller cannot probe the schema.
+
+    Bodies are strict. Money must be a positive JSON integer, so strings, floats and booleans are rejected. Identifiers are bounded to 64 characters, refunds per workspace are bounded to 50, unknown fields are refused, and only pending, succeeded and failed are accepted as statuses. Delivery origin is fixed to webhook on the server so a caller cannot claim a lookup happened.
+
+    A delivery returns its ingestion outcome separately from the refund status, because a recorded delivery does not mean the refund succeeded. Registration retries are safe: an identical request answers 200 already_admitted, and a changed amount for an existing refund id answers 409 refund_id_conflict. There is no lookup route and nothing reads fixture truth.
+
+    Checks: pytest 213 passed, including the normal flow, duplicates, conflicting claims, invalid money and identifiers, missing, wrong and URL supplied keys, a missing configured key, and attempts to reach integration data through the demo endpoints or a lookup path.

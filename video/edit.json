@@ -1,0 +1,128 @@
+{
+  "voice": null,
+  "music": null,
+  "captions": [],
+  "scenes": [
+    {
+      "type": "problem",
+      "start": 0,
+      "duration": 20
+    },
+    {
+      "type": "media",
+      "start": 20,
+      "duration": 8,
+      "title": "The service behind the demonstration",
+      "label": "ACTUAL APP · EXISTING CAPTURE",
+      "media": "integrate.png",
+      "note": "HISAAB — built as Refund Consistency · API contract documentation",
+      "crop": [
+        40,
+        440
+      ]
+    },
+    {
+      "type": "architecture",
+      "start": 28,
+      "duration": 10
+    },
+    {
+      "type": "media",
+      "start": 38,
+      "duration": 7,
+      "title": "First delivery: both records show ₹300",
+      "label": "ACTUAL APP · EXISTING CAPTURE",
+      "media": "duplicate-first.png",
+      "crop": [
+        150,
+        150
+      ]
+    },
+    {
+      "type": "media",
+      "start": 45,
+      "duration": 7,
+      "title": "Second delivery: ₹600 / ₹300",
+      "label": "ASSEMBLY · CAPTURE REQUIRED",
+      "missing": "Real duplicate_success second-delivery capture. This card is not application evidence."
+    },
+    {
+      "type": "media",
+      "start": 52,
+      "duration": 8,
+      "title": "Three deliveries. One protected amount.",
+      "label": "ACTUAL APP · EXISTING CAPTURE",
+      "media": "duplicate-final.png",
+      "note": "Naive ₹900 · protected ₹300 · recorded amounts, not payouts",
+      "crop": [
+        180,
+        455
+      ]
+    },
+    {
+      "type": "media",
+      "start": 60,
+      "duration": 7,
+      "title": "Missing evidence can be recovered",
+      "label": "SIMULATED PROVIDER LOOKUP",
+      "media": "recovery.png",
+      "note": "Simulated provider lookup at tick 3 · confirmed ₹300",
+      "crop": [
+        165,
+        335
+      ]
+    },
+    {
+      "type": "media",
+      "start": 67,
+      "duration": 7,
+      "title": "Conflicting evidence stays under review",
+      "label": "SIMULATED PROVIDER LOOKUP",
+      "media": "conflict.png",
+      "note": "Simulated provider lookup at tick 4 · review · ₹0 confirmed · ₹300 under review",
+      "crop": [
+        190,
+        345
+      ]
+    },
+    {
+      "type": "media",
+      "start": 74,
+      "duration": 16,
+      "title": "Signed documented sample · local HTTP test",
+      "label": "ASSEMBLY · CAPTURE REQUIRED",
+      "missing": "Actual tools/hyperswitch_demo.py repeat output: unchanged 30000 paise and invalid-signature rejection. Not a live Hyperswitch delivery."
+    },
+    {
+      "type": "media",
+      "start": 90,
+      "duration": 7,
+      "title": "Task · One bounded API task",
+      "label": "ASSEMBLY · ALAN CAPTURE REQUIRED",
+      "missing": "Real Alan conversation crop. Fallback narration: I broke the API work into small tasks."
+    },
+    {
+      "type": "evidence",
+      "start": 97,
+      "duration": 8,
+      "title": "Test · Count the same success event once",
+      "label": "GENUINE TEST SOURCE · NOT AN EXECUTION",
+      "text": "def test_repeated_success_notifications_confirm_one_amount(client):\n    ws = workspace(client)[\"workspace_id\"]\n    client.post(\n        \"/v1/workspaces/%s/refunds\" % ws,\n        json={\"refund_id\": \"R1\", \"amount_paise\": 30_000},\n        headers=auth(),\n    )\n    payload = {\n        \"event_id\": \"E8\",\n        \"refund_id\": \"R1\",\n        \"status\": \"succeeded\",\n        \"amount_paise\": 30_000,\n    }\n\n    first = client.post(\n        \"/v1/workspaces/%s/deliveries\" % ws,\n        json=dict(payload, attempt_id=\"a1\"),\n        headers=auth(),\n    )\n    second = client.post(\n        \"/v1/workspaces/%s/deliveries\" % ws,\n        json=dict(payload, attempt_id=\"a2\"),\n        headers=auth(),\n    )\n\n    assert first.json()[\"outcome\"] == \"accepted\"\n    assert second.json()[\"outcome\"] == \"duplicate_event\"\n\n    status = client.get(\"/v1/workspaces/%s\" % ws, headers=auth()).json()\n    assert status[\"totals\"][\"confirmed_paise\"] == 30_000",
+      "fontSize": 23
+    },
+    {
+      "type": "evidence",
+      "start": 105,
+      "duration": 7,
+      "title": "Commit · A traceable checkpoint",
+      "label": "HISTORICAL COMMIT · ac20202",
+      "text": "ac20202 — historical checkpoint\n\nExpose the integration service over an authenticated API\n\nFour routes under /v1 for a trusted backend: create a workspace, register a refund, submit a normalized delivery, and read protected status with evidence. The demo routes and pages are untouched.\n\nBodies are strict. Money must be a positive JSON integer, so strings, floats and booleans are rejected. Identifiers are bounded to 64 characters, refunds per workspace are bounded to 50, unknown fields are refused, and only pending, succeeded and failed are accepted as statuses. Delivery origin is fixed to webhook on the server so a caller cannot claim a lookup happened.\n\nFull original body: video/historical-commit.txt\nHistorical checks are not today’s test count.",
+      "fontSize": 27
+    },
+    {
+      "type": "close",
+      "start": 112,
+      "duration": 5
+    }
+  ]
+}
