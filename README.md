@@ -375,6 +375,25 @@ server additionally needs that server started with `INTEGRATION_API_KEY` set; wi
 it every `/v1` path answers 404 and the example exits with a clear message rather than
 fabricating a result.
 
+### Measured against a live server
+
+Run over HTTP against a local server started with a disposable test key, one
+workspace, no fixtures. The server's own records, read back through `GET
+/v1/workspaces/{id}` and from its database, showed:
+
+| Claim | Evidence |
+|---|---|
+| Registration succeeds | one intent `R1` of 30000, `admitted_paise` 30000, `accepted` |
+| Three deliveries confirm once | `a1` accepted, `a2` and `a3` `duplicate_event`; confirmed 30000, not 90000 |
+| Identical retry not recorded | four delivery rows total, `a1` present once; the retry returned `recorded: false` |
+| Later pending does not undo success | `a4` with event `E9` accepted as `pending`; refund still `succeeded`, confirmed 30000 |
+| No fixture involved | `fixture_text` empty, zero demo action rows, run kind `integration` |
+| Surfaces stay separate | `/runs/{id}` and `/api/runs/{id}` both 404 for this workspace |
+| Key enforced | no key 401, wrong key 401 |
+
+Final status: one refund, 30000 confirmed, 0 under review, no findings and no
+unmatched deliveries.
+
 The demo pages and the demonstration API cannot reach integration data. A demo route
 pointed at an integration workspace answers 404, so there is no path to user data
 without the key, and no path to a simulated lookup over it.
