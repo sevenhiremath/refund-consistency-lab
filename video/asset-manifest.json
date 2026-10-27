@@ -1,5 +1,5 @@
 {
-  "status": "all proof recordings and original narration imported; final rendering; music not supplied",
+  "status": "final exported and technically verified; user listening/playback before upload",
   "fps": 30,
   "duration_seconds": 116,
   "assets": [
@@ -238,11 +238,16 @@
           "duration": "115.960458"
         }
       }
+    },
+    {
+      "file": "duplicate-600-authentic.png",
+      "source": "01-duplicates.mp4 at 10.5 seconds, FFmpeg extracted frame",
+      "kind": "authentic captured frame, not recreated UI",
+      "sha256": "30cc7fc86953a74d32493933460d6d1adc292763b1ebed8d885e58422f427adc"
     }
   ],
   "missing": [
-    "music track (omitted for deadline)",
-    "official organizer links"
+    "official organizer links (submission context only)"
   ],
   "evidence": {
     "test_source": "tests/test_integration_api.py::test_repeated_success_notifications_confirm_one_amount",
@@ -287,7 +292,7 @@
       "caption_alignment": "local cached faster-whisper base.en measured segments; technical names manually normalized; listening review required",
       "silence": "natural pauses retained to preserve phrasing and synchronization",
       "screen_audio": "muted in all media components",
-      "music": "not provided; omitted"
+      "music": "omitted at explicit user request"
     },
     "complete_rough": {
       "file": "out/hisaab-complete-rough.mp4",
@@ -297,6 +302,29 @@
       "video": "h264",
       "audio": "aac 48kHz",
       "status": "all real recordings and narration; no missing-evidence cards"
+    },
+    "final": {
+      "file": "out/hisaab-final.mp4",
+      "duration_seconds": 116,
+      "width": 1920,
+      "height": 1080,
+      "fps": 30,
+      "video": "h264 yuv420p",
+      "audio": {
+        "source_duration_seconds": 115.96045833333334,
+        "decoded_output_duration_seconds": 115.968,
+        "waveform_correlation_at_original_timing": 0.9999874217956363,
+        "decoded_peak_dbfs": -1.4437389500204578,
+        "clipped_samples": 0,
+        "speed": 1,
+        "listening_review": "not performed; user playback required"
+      },
+      "bytes": 6576937,
+      "sha256": "df4aa119145e4314f07a8be5c594e69ebbf8072ead141ffe812c0ce038f3cacb",
+      "full_file_decode": "pass, no FFmpeg errors",
+      "captions": "hisaab.srt, 32 speech-derived cues, ending at 115.140 seconds",
+      "proof_repair": "authentic source frame at 10.5s held at 48.15\u201352.15s to preserve the observed 600/300 step; no fabricated values",
+      "visual_checks": "opening900; first300/300; corrected second600/300; third900/300; recoverytick3; conflicttick4/review; adapter30000/401; real Alan/source/commit; closing links"
     }
   }
 }

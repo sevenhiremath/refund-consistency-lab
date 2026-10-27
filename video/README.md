@@ -32,3 +32,5 @@ Video link: [add your uploaded video URL]. Organizer/form links pending from the
 
 
 The original silent assembly remains in `out/hisaab-backup-assembly.mp4`. The complete voiced 720p fallback is `out/hisaab-complete-rough.mp4`; reproduce with `python rough.py`. Final narration text is `SCRIPT-FINAL.md`. The original `voice.mp4` is audio-only MP4/AAC; FFmpeg converts it to 48 kHz PCM WAV with a 70 Hz high-pass and loudnorm I=-16 TP=-1.5 LRA=9, with no tempo change. The final MP4 uses the original narration timeline, including its natural pauses. No background track has been invented.
+
+Final delivery includes `python finalize.py` after the Remotion render. This preserves the intermediate export, holds an authentic raw-recording frame from 10.5 seconds during the 600/300 proof, and muxes the normalized narration directly. No voice speed changes. Original recordings and generated proof stills remain ignored by Git.
