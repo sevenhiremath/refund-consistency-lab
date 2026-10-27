@@ -2,20 +2,28 @@
 """Drive the Hyperswitch adapter over HTTP against a running server.
 
 Two phases, because the adapter binds to a workspace id that only exists after the
-workspace is created:
+workspace is created.
 
-    set LAB_BASE_URL=http://127.0.0.1:8031
-    set INTEGRATION_API_KEY=...        (same value the server uses)
-    python tools/hyperswitch_demo.py prepare        -> prints the workspace id
+Client environment variables, all set in the terminal running this tool:
 
-Restart the server with that id in HYPERSWITCH_WORKSPACE_ID, then:
+    LAB_BASE_URL                 where the server is, e.g. http://127.0.0.1:8031
+    INTEGRATION_API_KEY          same value the server was started with
+    HYPERSWITCH_WORKSPACE_ID     printed by `prepare`, and configured on the server
+    HYPERSWITCH_WEBHOOK_SECRET   same value the server was started with, for signing
 
-    set HYPERSWITCH_WEBHOOK_SECRET=...  (same value the server uses)
-    python tools/hyperswitch_demo.py deliver
+`prepare` needs only the first two. `deliver` and `repeat` need all four: without the
+workspace id there is no final status readback, so the tool refuses to start rather
+than posting deliveries it cannot verify.
 
-The payload is the documented sample in docs/samples/. It is constructed from the
-official schema, not captured from a live Hyperswitch instance. Nothing here prints a
-secret.
+Modes:
+
+    prepare   create the workspace, register the refund, print the workspace id
+    deliver   a fresh event: expect accepted, duplicate_event, duplicate_event
+    repeat    the same event again: expect duplicate_event three times, and an
+              unchanged confirmed total
+
+The payload is the documented sample in docs/samples/. It is built from the official
+schema, not captured from a live Hyperswitch instance. Nothing here prints a secret.
 """
 
 from __future__ import annotations
@@ -32,13 +40,25 @@ import urllib.request
 BASE_ENV = "LAB_BASE_URL"
 KEY_ENV = "INTEGRATION_API_KEY"
 SECRET_ENV = "HYPERSWITCH_WEBHOOK_SECRET"
+WORKSPACE_ENV = "HYPERSWITCH_WORKSPACE_ID"
 
 PAYMENT_ID = "pay_demo_1"
 REFUND_ID = "ref_demo_1"
 CAPTURED = 100_000
 REFUND = 30_000
 
-SAMPLE = pathlib.Path(__file__).resolve().parent.parent / "docs" / "samples" / "hyperswitch-refund-succeeded.json"
+SAMPLE = (
+    pathlib.Path(__file__).resolve().parent.parent
+    / "docs"
+    / "samples"
+    / "hyperswitch-refund-succeeded.json"
+)
+
+# What each mode must produce, in order. No mode accepts "any mixture".
+EXPECTED_OUTCOMES = {
+    "deliver": ["accepted", "duplicate_event", "duplicate_event"],
+    "repeat": ["duplicate_event", "duplicate_event", "duplicate_event"],
+}
 
 
 def env(name: str) -> str:
@@ -59,7 +79,10 @@ def request(method: str, path: str, body: bytes | None = None, headers: dict | N
 
 
 def auth() -> dict:
-    return {"Authorization": "Bearer %s" % env(KEY_ENV), "Content-Type": "application/json"}
+    return {
+        "Authorization": "Bearer %s" % env(KEY_ENV),
+        "Content-Type": "application/json",
+    }
 
 
 def sign(raw: bytes, secret: str) -> str:
@@ -72,15 +95,51 @@ def sample() -> bytes:
     return json.dumps(data).encode("utf-8")
 
 
+def read_status(workspace_id: str) -> dict:
+    status, text = request("GET", "/v1/workspaces/%s" % workspace_id, None, auth())
+    if status != 200:
+        raise SystemExit("status read failed: %s %s" % (status, text))
+    return json.loads(text)
+
+
+def check_expectations(mode: str, outcomes: list[str]) -> list[str]:
+    """Compare what happened with what this mode promises. Pure, for testing."""
+    expected = EXPECTED_OUTCOMES[mode]
+    problems = []
+    if outcomes != expected:
+        problems.append("expected %s but got %s" % (expected, outcomes))
+    return problems
+
+
+def check_totals(mode: str, before: int, after: int) -> list[str]:
+    """A fresh run must gain the refund once; a repeat must not move the total."""
+    problems = []
+    if mode == "deliver":
+        if before != 0:
+            problems.append(
+                "workspace already has %d confirmed; this is not a fresh run, use "
+                "`repeat` instead" % before
+            )
+        if after != REFUND:
+            problems.append("expected %d confirmed after a fresh run, got %d" % (REFUND, after))
+    else:
+        if before != REFUND:
+            problems.append(
+                "expected %d already confirmed before a repeat, got %d; run `deliver` "
+                "first" % (REFUND, before)
+            )
+        if after != before:
+            problems.append(
+                "repeat changed the confirmed total from %d to %d" % (before, after)
+            )
+    return problems
+
+
 def prepare() -> int:
-    status, text = request(
-        "POST",
-        "/v1/workspaces",
-        json.dumps(
-            {"provider": "hyperswitch", "payment_id": PAYMENT_ID, "captured_paise": CAPTURED}
-        ).encode(),
-        auth(),
-    )
+    body = json.dumps(
+        {"provider": "hyperswitch", "payment_id": PAYMENT_ID, "captured_paise": CAPTURED}
+    ).encode()
+    status, text = request("POST", "/v1/workspaces", body, auth())
     if status != 201:
         print("workspace creation failed: %s %s" % (status, text))
         return 1
@@ -105,15 +164,23 @@ def prepare() -> int:
     print("  set HYPERSWITCH_MERCHANT_ID=merchant_demo_1")
     print("  set HYPERSWITCH_PAYMENT_ID=%s" % PAYMENT_ID)
     print("  set HYPERSWITCH_WEBHOOK_SECRET=<the same secret you use here>")
+    print()
+    print("and in this terminal also set:")
+    print("  set HYPERSWITCH_WORKSPACE_ID=%s" % workspace_id)
     return 0
 
 
-def deliver() -> int:
+def deliver(mode: str) -> int:
     secret = env(SECRET_ENV)
+    workspace_id = env(WORKSPACE_ENV)
     raw = sample()
     signature = sign(raw, secret)
 
-    print("delivering the documented sample three times")
+    before = read_status(workspace_id)
+    before_confirmed = before["totals"]["confirmed_paise"]
+
+    print("%s run against %s" % (mode, workspace_id))
+    print("  confirmed before: %d" % before_confirmed)
     outcomes = []
     for index in range(3):
         status, text = request(
@@ -123,73 +190,61 @@ def deliver() -> int:
             {"Content-Type": "application/json", "X-Webhook-Signature-512": signature},
         )
         if status != 200:
-            print("delivery %d failed: %s %s" % (index + 1, status, text))
+            print("  delivery %d failed: %s %s" % (index + 1, status, text))
             return 1
         body = json.loads(text)
         outcomes.append(body["outcome"])
         print(
-            "  delivery %d  attempt=%s  outcome=%-15s confirmed=%s"
-            % (
-                index + 1,
-                body["attempt_id"],
-                body["outcome"],
-                body["refund"]["confirmed_paise"] if body["refund"] else "-",
-            )
+            "  delivery %d  attempt=%-30s outcome=%-15s confirmed=%s"
+            % (index + 1, body["attempt_id"], body["outcome"],
+               body["refund"]["confirmed_paise"] if body["refund"] else "-")
         )
 
-    if outcomes != ["accepted", "duplicate_event", "duplicate_event"]:
-        print("unexpected outcomes: %s" % outcomes)
-        return 1
-
-    # Rejections must not write.
-    status, _ = request(
-        "POST",
-        "/webhooks/hyperswitch",
-        raw,
+    # Rejections must leave the record alone.
+    status_bad, _ = request(
+        "POST", "/webhooks/hyperswitch", raw,
         {"Content-Type": "application/json", "X-Webhook-Signature-512": "0" * 128},
     )
-    print("  bad signature   -> %s (expected 401)" % status)
-    if status != 401:
-        return 1
-
+    print("  bad signature   -> %s (expected 401)" % status_bad)
     tampered = raw.replace(b"30000", b"90000")
-    status, _ = request(
-        "POST",
-        "/webhooks/hyperswitch",
-        tampered,
+    status_tampered, _ = request(
+        "POST", "/webhooks/hyperswitch", tampered,
         {"Content-Type": "application/json", "X-Webhook-Signature-512": signature},
     )
-    print("  tampered body   -> %s (expected 401)" % status)
-    if status != 401:
-        return 1
+    print("  tampered body   -> %s (expected 401)" % status_tampered)
 
-    # Read the protected status back through the authenticated API.
-    workspace_id = os.environ.get("HYPERSWITCH_WORKSPACE_ID", "").strip()
-    if not workspace_id:
-        raise SystemExit("set HYPERSWITCH_WORKSPACE_ID to read the status back")
-    status, text = request("GET", "/v1/workspaces/%s" % workspace_id, None, auth())
-    if status != 200:
-        print("status read failed: %s %s" % (status, text))
-        return 1
-    state = json.loads(text)
-    refund = state["refunds"][0]
+    after = read_status(workspace_id)
+    after_confirmed = after["totals"]["confirmed_paise"]
+    refund = after["refunds"][0]
     print(
-        "  final status    %s confirmed=%d review=%d"
-        % (refund["status"], refund["confirmed_paise"], refund["review_paise"])
+        "  confirmed after : %d  status=%s review=%d"
+        % (after_confirmed, refund["status"], refund["review_paise"])
     )
-    if refund["confirmed_paise"] != REFUND or refund["status"] != "succeeded":
-        print("expected one confirmed refund of %d" % REFUND)
+
+    problems = []
+    if status_bad != 401:
+        problems.append("bad signature was not rejected with 401")
+    if status_tampered != 401:
+        problems.append("tampered body was not rejected with 401")
+    problems += check_expectations(mode, outcomes)
+    problems += check_totals(mode, before_confirmed, after_confirmed)
+
+    if problems:
+        for problem in problems:
+            print("  FAILED: %s" % problem)
         return 1
 
-    print("ok: adapter confirmed %d once across three deliveries" % REFUND)
+    print("ok: %s expectations held at %d confirmed" % (mode, after_confirmed))
     return 0
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2 or argv[1] not in ("prepare", "deliver"):
-        print("usage: python tools/hyperswitch_demo.py prepare|deliver")
+    if len(argv) != 2 or argv[1] not in ("prepare", "deliver", "repeat"):
+        print("usage: python tools/hyperswitch_demo.py prepare|deliver|repeat")
         return 2
-    return prepare() if argv[1] == "prepare" else deliver()
+    if argv[1] == "prepare":
+        return prepare()
+    return deliver(argv[1])
 
 
 if __name__ == "__main__":

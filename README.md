@@ -403,9 +403,51 @@ duplicated in the adapter.
 
 `docs/samples/hyperswitch-refund-succeeded.json` is a **documented sample**, built from
 the official outgoing webhook envelope and refund object schema. It was not captured
-from a live Hyperswitch instance. The adapter is verified against that documented
-payload and is **not** live Hyperswitch verified. A genuine sandbox delivery still
-needs an account, an INR capable connector and a public HTTPS endpoint.
+from a live Hyperswitch instance.
+
+### Measured over HTTP
+
+The adapter has been run against a local server over HTTP, using that sample signed
+with a disposable secret. It was **not** sent by a live Hyperswitch instance.
+
+| Check | Result |
+|---|---|
+| First delivery of the event | `accepted`, `hs:evt_hs_demo_refund_1:1`, confirmed 30000 |
+| Second and third delivery | `duplicate_event`, attempts `:2` and `:3`, confirmed still 30000 |
+| Bad signature | 401, no write |
+| Tampered body with the original signature | 401, no write |
+| Two further delivery rounds | all `duplicate_event`, attempts `:4` to `:6` |
+| Server records after six deliveries | one accepted observation, six attempts, one intent, no findings |
+| Final status | `succeeded`, confirmed 30000, review 0 |
+
+A second round of deliveries produced duplicates, not a second confirmation. That is
+the processor behaving correctly against an event that had already been applied.
+
+### Running the adapter demo
+
+`tools/hyperswitch_demo.py` has three modes and each states what it expects:
+
+```
+set LAB_BASE_URL=http://127.0.0.1:8031
+set INTEGRATION_API_KEY=<server value>
+python tools/hyperswitch_demo.py prepare
+
+:: after restarting the server with HYPERSWITCH_* set
+set HYPERSWITCH_WORKSPACE_ID=<id from prepare>
+set HYPERSWITCH_WEBHOOK_SECRET=<server value>
+python tools/hyperswitch_demo.py deliver    :: accepted, duplicate_event, duplicate_event
+python tools/hyperswitch_demo.py repeat     :: duplicate_event three times, total unchanged
+```
+
+The client terminal needs `LAB_BASE_URL`, `INTEGRATION_API_KEY`, and for the delivery
+modes also `HYPERSWITCH_WORKSPACE_ID` and `HYPERSWITCH_WEBHOOK_SECRET`. The tool stops
+before sending anything if the workspace id is missing, because without it there is no
+final status readback. A repeat also fails if the workspace has not been delivered to
+yet, or if the confirmed total moves.
+
+A genuine sandbox delivery still needs an account, an INR capable connector and a
+public HTTPS endpoint. This adapter is verified against a documented payload over HTTP,
+not against Hyperswitch itself.
 
 ### Measured against a live server
 
