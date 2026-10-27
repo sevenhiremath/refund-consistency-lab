@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 SCENARIOS = (
     "healthy",
     "duplicate_success",
@@ -454,3 +456,44 @@ def test_guided_conflict_states_the_order_and_tick(client):
     second = client.get(location).text
     assert "Query tick to 4" in second
     assert "Reconcile" in second
+
+
+# -- headings and multi refund comparison --------------------------------
+
+
+def heading(page_text):
+    match = re.search(r"<h1[^>]*>(.*?)</h1>", page_text, re.S)
+    return match.group(1).strip() if match else ""
+
+
+def title_of(page_text):
+    match = re.search(r"<title>(.*?)</title>", page_text, re.S)
+    return match.group(1).strip() if match else ""
+
+
+def test_every_scenario_has_a_meaningful_heading_and_title(client):
+    names = [item["name"] for item in client.get("/api/scenarios").json()["scenarios"]]
+    assert len(names) == 12
+
+    for name in names:
+        location = start(client, name)
+        page = client.get(location)
+        assert page.status_code == 200, name
+        assert heading(page.text), "empty heading for %s" % name
+        title = title_of(page.text)
+        assert title and not title.startswith("·"), "bad title for %s: %r" % (name, title)
+        assert "None" not in title, "unresolved label in title for %s: %r" % (name, title)
+
+
+def test_partials_comparison_shows_whole_run_totals(client):
+    location = start(client, "partials_duplicate")
+    client.post(action_url(location, "/run"), data={"expected_cursor": "0"}, follow_redirects=True)
+    page = client.get(location)
+
+    text = page.text
+    # Whole run: naive 800, protected 500.
+    assert "₹800.00" in text
+    assert "₹500.00" in text
+    # Per refund breakdown is still there: R1 600/300 and R2 200/200.
+    assert "₹600.00" in text and "₹300.00" in text
+    assert text.count("₹200.00") >= 2

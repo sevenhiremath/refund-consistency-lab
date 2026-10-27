@@ -10,7 +10,8 @@
 {% macro amount(value, tone) -%}
 <span class="value{% if value > 0 %} {{ tone }}{% endif %}">{{ value | paise }}</span>
 {%- endmacro %}
-{% block title %}{% if guided %}{{ guided.title }}{% else %}{{ body.fixture.label }}{% endif %} · Demo · Refund Consistency{% endblock %}
+{% set heading = guided.title if guided else (label or body.fixture.name) %}
+{% block title %}{{ heading }} · Demo · Refund Consistency{% endblock %}
 {% block content %}
   {% set q = "?guided=1" if guided else "" %}
   {% set refunds = body.comparison.refunds %}
@@ -25,7 +26,7 @@
     <h1>{{ guided.title }}</h1>
     <p class="lede">{{ guided.claim }}</p>
   {% else %}
-    <h1>{{ body.fixture.label }}</h1>
+    <h1>{{ heading }}</h1>
     <p class="lede">{{ body.fixture.notes }}</p>
   {% endif %}
 
@@ -132,8 +133,9 @@
     <summary>
       <span class="cmp-title">Naive baseline</span>
       <span class="cmp-values">
-        naive processor <b>{{ primary.naive_total_paise | paise }}</b>
-        · protected processor <b class="ok">{{ primary.protected_confirmed_paise | paise }}</b>
+        naive processor <b>{{ body.comparison.naive_total_paise | paise }}</b>
+        · protected processor <b class="ok">{{ body.comparison.protected_confirmed_paise | paise }}</b>
+        · whole run
       </span>
     </summary>
     <div class="compare-body">

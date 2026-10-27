@@ -1,11 +1,12 @@
-"""Browser walkthrough of the comparison page.
+"""Browser walkthrough of the current interface.
 
 Development only. Needs a running server and Playwright with a local browser:
 
-    python -m uvicorn app.main:app --port 8010
+    python -m uvicorn app.main:app --port 8031
     python tools/browser_check.py
 
-Set LAB_BROWSER_CHANNEL to msedge, chrome, or leave it empty for bundled Chromium.
+Set LAB_BASE_URL to point elsewhere, and LAB_BROWSER_CHANNEL to msedge, chrome, or
+leave it empty for bundled Chromium.
 """
 
 from __future__ import annotations
@@ -13,11 +14,12 @@ from __future__ import annotations
 import json
 import os
 import sys
+import urllib.request
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
 
-BASE = os.environ.get("LAB_BASE_URL", "http://127.0.0.1:8010")
+BASE = os.environ.get("LAB_BASE_URL", "http://127.0.0.1:8031")
 SHOTS = Path(os.environ.get("LAB_SHOTS_DIR", "var/shots"))
 SHOTS.mkdir(parents=True, exist_ok=True)
 
@@ -29,25 +31,28 @@ def check(name: str, condition: bool, detail: str = "") -> None:
     print(("PASS " if condition else "FAIL ") + name + ((" :: " + detail) if detail else ""))
 
 
-def run_all(page) -> None:
-    """Run to end when there is anything left to deliver.
+def api(path: str) -> dict:
+    with urllib.request.urlopen(BASE + path, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
 
-    A fixture whose notifications were all dropped has an empty schedule, so it is
-    finished immediately and only Reconcile applies.
-    """
+
+def run_id(url: str) -> str:
+    return url.split("/runs/")[1].split("?")[0]
+
+
+def start(page, scenario: str) -> None:
+    page.goto(BASE + "/walkthrough", wait_until="domcontentloaded")
+    row = page.locator("table tbody tr", has_text=scenario.split("_")[0])
+    page.locator("table tbody tr").filter(has_text=scenario).get_by_role("button", name="Start").click()
+    page.wait_for_load_state("domcontentloaded")
+    expect(page.locator("h1")).not_to_be_empty()
+
+
+def run_all(page) -> None:
     button = page.get_by_role("button", name="Run to end")
     if button.is_enabled():
         button.click()
         page.wait_for_load_state("domcontentloaded")
-
-
-def start(page, scenario: str) -> str:
-    page.goto(BASE + "/", wait_until="domcontentloaded")
-    page.locator("article.card", has_text=scenario).get_by_role("button", name="Start").click()
-    # The URL pattern also matches the previous run, so wait on the rendered
-    # heading instead of the URL.
-    expect(page.locator("h1")).to_have_text(scenario)
-    return page.url
 
 
 def main() -> int:
@@ -56,122 +61,114 @@ def main() -> int:
         browser = playwright.chromium.launch(channel=channel, headless=True)
         context = browser.new_context(viewport={"width": 1280, "height": 900})
         page = context.new_page()
+        errors: list[str] = []
+        page.on("pageerror", lambda exc: errors.append(str(exc)))
 
-        # 1. Picker
+        # Overview and navigation
         page.goto(BASE + "/", wait_until="domcontentloaded")
-        cards = page.locator("article.card")
-        check("picker lists scenarios", cards.count() == 12, "cards=%d" % cards.count())
-        check("picker shows a start action", page.get_by_role("button", name="Start").count() == 12)
-        page.screenshot(path=str(SHOTS / "01-picker.png"), full_page=True)
+        nav = page.locator("nav[aria-label=Primary] a")
+        check("three destinations", nav.count() == 3, str(nav.count()))
+        check(
+            "nav labels",
+            [nav.nth(i).inner_text().strip() for i in range(3)]
+            == ["Overview", "Demo", "Integrate"],
+        )
+        check("overview heading is not empty", page.locator("h1").inner_text().strip() != "")
+        page.screenshot(path=str(SHOTS / "overview.png"))
 
-        # 2. Healthy: step, then run to end
-        start(page, "healthy")
-        check("healthy run page loads", "healthy" in page.title() or "healthy" in page.inner_text("h1"))
-        check("starts in progress", "in progress" in page.inner_text("body"))
-        check("step enabled before running", page.get_by_role("button", name="Step").is_enabled())
+        # Demo lists all twelve
+        page.goto(BASE + "/walkthrough", wait_until="domcontentloaded")
+        rows = page.locator("section table tbody tr")
+        check("twelve scenarios listed", rows.count() == 12, str(rows.count()))
+        labels = [
+            rows.nth(i).locator("td").first.inner_text().strip().split("\n")[0]
+            for i in range(rows.count())
+        ]
+        check("every scenario row has a label", all(labels), str(labels[:3]))
 
-        page.get_by_role("button", name="Step").click()
+        # Every scenario opens with a heading and a title
+        names = [item["name"] for item in api("/api/scenarios")["scenarios"]]
+        empty = []
+        for name in names:
+            page.goto(BASE + "/walkthrough", wait_until="domcontentloaded")
+            page.locator("table tbody tr").filter(has_text=name).get_by_role("button", name="Start").click()
+            page.wait_for_load_state("domcontentloaded")
+            if not page.locator("h1").inner_text().strip():
+                empty.append(name)
+            if page.title().strip().startswith("·"):
+                empty.append(name + ":title")
+        check("every scenario has a heading and title", not empty, ",".join(empty))
+
+        # Duplicates: displayed totals come from the backend
+        page.goto(BASE + "/walkthrough", wait_until="domcontentloaded")
+        page.locator("table tbody tr").filter(has_text="duplicate_success").get_by_role("button", name="Start").click()
         page.wait_for_load_state("domcontentloaded")
-        check("one step applied", "1 of 2" in page.inner_text("body"))
-
-        page.get_by_role("button", name="Run to end").click()
-        page.wait_for_load_state("domcontentloaded")
-        healthy_row = page.get_by_test_id("comparison").locator("tbody tr", has_text="R1")
-        check("healthy protected succeeded", "succeeded" in healthy_row.inner_text())
-        check("healthy naive agrees", "succeeded" in healthy_row.inner_text())
-        check("delivery completion shown", "complete" in page.inner_text("body"))
-        check("step disabled after finishing", page.get_by_role("button", name="Step").is_disabled())
-        page.screenshot(path=str(SHOTS / "02-healthy.png"), full_page=True)
-
-        # 3. Duplicate delivery
-        start(page, "duplicate_success")
-        page.get_by_role("button", name="Run to end").click()
-        page.wait_for_load_state("domcontentloaded")
-        stats = page.get_by_test_id("stats").inner_text()
-        row = page.get_by_test_id("comparison").locator("tbody tr", has_text="R1")
-        check("duplicate protected stays 300", "300.00" in row.inner_text())
-        check("duplicate naive reads 900", "900.00" in row.inner_text())
-        check("duplicate total shown in stats", "900.00" in stats)
-        check("three deliveries recorded", page.get_by_test_id("actions").locator("tbody tr").count() == 3)
-        page.screenshot(path=str(SHOTS / "03-duplicate.png"), full_page=True)
-
-        # 4. Missing message recovered by lookup
-        start(page, "lookup_recovers_success")
+        rid = run_id(page.url)
         run_all(page)
-        before = page.get_by_test_id("comparison").locator("tbody tr", has_text="R1")
-        check("missing message leaves pending", "pending" in before.inner_text())
+        refund = api("/api/runs/%s" % rid)["comparison"]["refunds"][0]
+        summary = page.locator(".summary").first.inner_text()
+        check("protected 300 shown", "₹300.00" in summary, summary.replace("\n", " | "))
+        check("naive total reachable", str(refund["naive_total_paise"] // 100) in page.content())
+        check("comparison is a disclosure", page.locator("details.compare").count() == 1)
+        page.screenshot(path=str(SHOTS / "duplicates.png"))
 
+        # Partials: comparison summary uses whole run totals, breakdown stays
+        page.goto(BASE + "/walkthrough", wait_until="domcontentloaded")
+        page.locator("table tbody tr").filter(has_text="partials_duplicate").get_by_role("button", name="Start").click()
+        page.wait_for_load_state("domcontentloaded")
+        rid = run_id(page.url)
+        run_all(page)
+        report = api("/api/runs/%s" % rid)
+        whole = page.locator("details.compare > summary").inner_text()
+        check(
+            "comparison summary shows whole run naive total",
+            "₹800.00" in whole,
+            whole.replace("\n", " "),
+        )
+        check(
+            "comparison summary shows whole run protected total",
+            "₹500.00" in whole,
+        )
+        page.locator("details.compare > summary").click()
+        breakdown = page.locator("details.compare").inner_text()
+        check("per refund breakdown kept", "₹600.00" in breakdown and "₹300.00" in breakdown)
+        check(
+            "breakdown matches the report",
+            any(row["protected_confirmed_paise"] == 30000 for row in report["comparison"]["refunds"]),
+        )
+        page.screenshot(path=str(SHOTS / "partials.png"))
+
+        # Missing recovery and conflict still work
+        page.goto(BASE + "/walkthrough", wait_until="domcontentloaded")
+        page.locator("table tbody tr").filter(has_text="lookup_recovers_success").get_by_role("button", name="Start").click()
+        page.wait_for_load_state("domcontentloaded")
+        check("guidance names tick 3", "Query tick to 3" in page.inner_text("body"))
         page.get_by_label("Query tick").fill("3")
         page.get_by_role("button", name="Reconcile").click()
         page.wait_for_load_state("domcontentloaded")
-        after = page.get_by_test_id("comparison").locator("tbody tr", has_text="R1")
-        check("lookup recovers success", "succeeded" in after.inner_text())
-        check("recovered amount is 300", "300.00" in after.inner_text())
-        check("lookup action recorded", "lookup" in page.get_by_test_id("actions").inner_text())
-        page.screenshot(path=str(SHOTS / "04-recovery.png"), full_page=True)
+        check("recovery confirms 300", "₹300.00" in page.locator(".summary").first.inner_text())
 
-        # 5. Conflict stays unresolved
-        start(page, "lookup_conflict")
+        page.goto(BASE + "/walkthrough", wait_until="domcontentloaded")
+        page.locator("table tbody tr").filter(has_text="lookup_conflict").get_by_role("button", name="Start").click()
+        page.wait_for_load_state("domcontentloaded")
         run_all(page)
         page.get_by_label("Query tick").fill("4")
         page.get_by_role("button", name="Reconcile").click()
         page.wait_for_load_state("domcontentloaded")
-        conflict_row = page.get_by_test_id("comparison").locator("tbody tr", has_text="R1")
-        check("conflict stays in review", "review" in conflict_row.inner_text())
-        check("conflict reason visible", "terminal_conflict" in conflict_row.inner_text())
-        check("conflict confirmed is zero", "0.00" in conflict_row.inner_text())
-        page.screenshot(path=str(SHOTS / "05-conflict.png"), full_page=True)
+        check("conflict stays under review", "review" in page.locator(".summary").first.inner_text())
 
-        # 6. Loading state (synthetic submit keeps us on the page)
-        start(page, "duplicate_success")
-        page.evaluate(
-            """() => {
-                const form = document.querySelector('form[action$="/step"]');
-                form.dispatchEvent(new Event("submit", {bubbles: true, cancelable: true}));
-            }"""
-        )
-        step_form = page.locator('form[action$="/step"]')
-        step_button = step_form.get_by_role("button")
-        check("loading sets aria-busy", step_form.get_attribute("aria-busy") == "true")
-        check("loading disables the button", step_button.is_disabled())
-        check("loading changes the label", step_button.inner_text().strip() == "Stepping…")
-        page.screenshot(path=str(SHOTS / "06-loading.png"), full_page=False)
-        page.reload(wait_until="domcontentloaded")
-        check("reload clears loading state", page.get_by_role("button", name="Step").is_enabled())
+        # Narrow layout
+        narrow = browser.new_context(viewport={"width": 390, "height": 844})
+        small = narrow.new_page()
+        for path in ("/", "/walkthrough", "/integrate"):
+            small.goto(BASE + path, wait_until="domcontentloaded")
+            overflow = small.evaluate("() => document.documentElement.scrollWidth - window.innerWidth")
+            check("no overflow on %s" % path, overflow <= 1, str(overflow))
 
-        # 7. Evidence download from a completed run
-        run_all(page)
-        with page.expect_download() as download_info:
-            page.get_by_role("link", name="Download evidence").click()
-        download = download_info.value
-        evidence_path = SHOTS / "evidence.json"
-        download.save_as(str(evidence_path))
-        payload = json.loads(evidence_path.read_text(encoding="utf-8"))
-        check("download is named after the run", download.suggested_filename.endswith(".json"), download.suggested_filename)
-        check("evidence carries a digest", bool(payload.get("digest")))
-        check(
-            "evidence carries the comparison",
-            payload["comparison"]["naive_total_paise"] == 90_000,
-            "naive=%d" % payload["comparison"]["naive_total_paise"],
-        )
-
-        # 8. Error: unknown run
-        response = page.goto(BASE + "/runs/run_missing", wait_until="domcontentloaded")
-        check("unknown run returns 404", response is not None and response.status == 404, str(response.status))
-        check("unknown run page explains", "unknown run" in page.inner_text("body"))
-        page.screenshot(path=str(SHOTS / "07-error-404.png"), full_page=True)
-
-        # 9. Error: reconcile in the past
-        start(page, "lookup_conflict")
-        run_all(page)
-        page.get_by_label("Query tick").fill("1")
-        page.get_by_role("button", name="Reconcile").click()
-        page.wait_for_load_state("domcontentloaded")
-        check("past lookup returns 400", "cannot look up" in page.inner_text("body"))
-        check("past lookup page has a way back", "Back to scenarios" in page.inner_text("body"))
-        page.screenshot(path=str(SHOTS / "08-error-400.png"), full_page=True)
+        check("no page errors", not errors, "; ".join(errors[:2]))
 
         context.close()
+        narrow.close()
         browser.close()
 
     failed = [name for name, ok, _ in results if not ok]

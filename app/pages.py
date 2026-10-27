@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from app.config import VERSION
 from app.errors import LabError
-from app.guided import GUIDED_STEPS, guided_step
+from app.guided import GUIDED_STEPS, guided_step, label_for
 from app.lab_service import LabService
 
 router = APIRouter()
@@ -112,6 +112,7 @@ async def run_page(request: Request, run_id: str) -> HTMLResponse:
             "digest": report.digest,
             "pending_refunds": pending_refunds,
             "guided": guided_step(str(body["fixture"]["name"])),
+            "label": label_for(str(body["fixture"]["name"])),
         },
     )
 
