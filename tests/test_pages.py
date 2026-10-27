@@ -206,7 +206,8 @@ def test_guided_page_labels_both_sides_and_shows_one_figure(client):
 
     # Before anything is delivered both records are empty, and the page says so.
     empty = client.get(location)
-    assert "Nothing delivered yet" in empty.text
+    assert "Press Run to end to apply the three inspections" not in empty.text
+    assert "Press Run to end" in empty.text
 
     client.post(
         action_url(location, "/run"), data={"expected_cursor": "0"}, follow_redirects=True
@@ -270,7 +271,7 @@ def test_guided_copy_does_not_claim_a_result_before_deliveries(client):
     # Explanation of the scenario is allowed. A stated current total is not.
     assert "now records" not in page.text
     assert "records ₹900" not in page.text
-    assert "Nothing delivered yet" in page.text
+    assert "Press Run to end" in page.text
     assert "₹0.00" in page.text
 
 
@@ -364,3 +365,92 @@ def test_overview_corrects_the_webhook_framing(client):
     # A proper processor handles duplicates without a lookup.
     assert "without asking anyone" in body
     assert "never arrived" in body
+
+
+# -- adapter documentation and run page wording -------------------------
+
+
+def test_integrate_documents_the_hyperswitch_adapter(client):
+    body = client.get("/integrate").text
+
+    assert "/webhooks/hyperswitch" in body
+    assert "X-Webhook-Signature-512" in body
+    assert "HMAC-SHA512" in body
+    for name in (
+        "HYPERSWITCH_WEBHOOK_SECRET",
+        "HYPERSWITCH_WORKSPACE_ID",
+        "HYPERSWITCH_MERCHANT_ID",
+        "HYPERSWITCH_PAYMENT_ID",
+    ):
+        assert name in body
+    assert "refund_succeeded" in body and "refund_failed" in body
+    assert "401" in body and "403" in body and "422" in body
+
+
+def test_integrate_says_the_adapter_used_a_documented_sample(client):
+    body = " ".join(client.get("/integrate").text.split())
+
+    assert "signed documented sample" in body
+    assert "not a delivery from a live" in body
+
+
+def test_integrate_separates_lookup_from_the_adapter(client):
+    body = client.get("/integrate").text
+
+    assert "Real provider lookup" in body
+    assert "still not implemented" in body
+    # The old claim that no adapter exists is gone.
+    assert "When a real provider adapter exists" not in body
+
+
+def test_event_id_alone_wording_is_gone(client):
+    for path in ("/", "/walkthrough", "/integrate"):
+        body = client.get(path).text.lower()
+        assert "event id alone" not in body, path
+
+
+def test_pending_refund_reason_is_not_settled(client):
+    location = start(client, "dropped_success")
+    page = client.get(location)
+
+    body = page.text.lower()
+    assert "settled by the notifications received" not in body
+    assert "awaiting provider evidence" in body
+    # No deliveries are scheduled, so the page must not tell you to run them.
+    assert "no scheduled notifications" in body
+
+
+def test_guided_recovery_gives_the_query_tick(client):
+    location = start(client, "lookup_recovers_success")
+    page = client.get(location)
+
+    assert "disabled>Run to end" in page.text
+    assert "Query tick to 3" in page.text
+    assert "Reconcile" in page.text
+    assert "Press Run to end" not in page.text
+
+
+def test_recovered_refund_does_not_claim_a_notification_arrived(client):
+    location = start(client, "lookup_recovers_success")
+    client.post(
+        action_url(location, "/reconcile"), data={"refund_id": "R1", "tick": "3"},
+        follow_redirects=True,
+    )
+    page = client.get(location)
+
+    body = page.text.lower()
+    assert "provider confirmed the refund" in body
+    assert "notifications received" not in body
+    assert "missing notification arrived" not in body
+
+
+def test_guided_conflict_states_the_order_and_tick(client):
+    location = start(client, "lookup_conflict")
+    first = client.get(location).text
+    assert "Run to end" in first
+    assert "failure notification" in first
+
+    client.post(action_url(location, "/run"), data={"expected_cursor": "0"}, follow_redirects=True)
+    second = client.get(location).text
+    assert "Query tick to 4" in second
+    assert "Reconcile" in second

@@ -47,7 +47,7 @@
         <div>
           <h2>Deliver notifications</h2>
           <p>One normalized observation per delivery attempt. Duplicates are settled
-            by the event id alone.</p>
+            counted once by the processor.</p>
           <p class="endpoint"><code>POST /v1/workspaces/{id}/deliveries</code></p>
         </div>
       </li>
@@ -113,16 +113,57 @@ python examples\integration_client.py</code></pre>
   </section>
 
   <section>
-    <h2>What is not in the API</h2>
+    <h2>Hyperswitch webhook adapter</h2>
     <p>
-      There is no provider lookup route and no refund execution. The demo's lookup
-      is simulated and stays inside the demonstration, so the API never answers from
-      fixture truth. When a real provider adapter exists it will add a lookup that
-      supplies information a dropped notification never carried.
+      A separate route accepts a real Hyperswitch refund webhook and hands it to the
+      same processing service. It is not part of <code>/v1</code> and does not use the
+      bearer key, because the caller is the provider.
+    </p>
+    <pre><code>POST /webhooks/hyperswitch
+X-Webhook-Signature-512: &lt;hex digest&gt;</code></pre>
+    <p>
+      The signature is an HMAC-SHA512 of the exact raw request body using the signing
+      secret, compared in constant time before the body is parsed. A wrong digest or a
+      tampered body is rejected with 401 and nothing is written.
+    </p>
+    <p>Configuration is all server side. The route answers 404 unless every value is set:</p>
+    <ul>
+      <li><code>HYPERSWITCH_WEBHOOK_SECRET</code> signing secret</li>
+      <li><code>HYPERSWITCH_WORKSPACE_ID</code> the one workspace deliveries land in</li>
+      <li><code>HYPERSWITCH_MERCHANT_ID</code> expected merchant</li>
+      <li><code>HYPERSWITCH_PAYMENT_ID</code> expected payment</li>
+    </ul>
+    <p>
+      The merchant and payment are bound by configuration, never by the payload, so a
+      body naming another merchant or payment is refused with 403. The refund intent
+      must already exist and its intended amount is never rewritten.
+    </p>
+    <p>
+      Supported events are <code>refund_succeeded</code> and <code>refund_failed</code>,
+      and the event type must agree with the refund object's status. Any other event,
+      status or currency is refused with 422 rather than coerced. An INR amount that
+      differs from the intent is passed through, so the existing processor keeps it as
+      review evidence.
     </p>
     <p class="note">
-      Duplicate handling does not need a lookup. A processor that keys on the provider
-      event id applies it once, however many times it is delivered.
+      Verified over HTTP using a signed documented sample, not a delivery from a live
+      Hyperswitch account. The sample in the repository is built from the official
+      webhook and refund schemas.
+    </p>
+  </section>
+
+  <section>
+    <h2>What is still not implemented</h2>
+    <p>
+      Real provider lookup. There is no route that asks a provider for a refund's
+      current state, and no provider credentials are held. The lookup you can try in
+      the demo is simulated and stays inside the demonstration, so the API never
+      answers from fixture truth.
+    </p>
+    <p class="note">
+      Duplicate handling does not need a lookup. Repeated deliveries of the same
+      matching event count once. If two claims about one event disagree, both are kept
+      as evidence and the refund stays under review.
     </p>
   </section>
 {% endblock %}

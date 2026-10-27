@@ -12,6 +12,8 @@ class Step:
     claim: str
     watch: str
     side_note: str
+    next_step: str
+    next_step_after: str = ""
 
 
 # Presentation only. The scenario ids are the internal fixture names, the rest is
@@ -38,6 +40,7 @@ GUIDED_STEPS: tuple[Step, ...] = (
             "on the first success and stays there when the same event arrives again. "
             "Only the naive baseline keeps counting."
         ),
+        next_step="Press Run to end to apply the three deliveries.",
     ),
     Step(
         slug="missing",
@@ -58,6 +61,10 @@ GUIDED_STEPS: tuple[Step, ...] = (
             "returns evidence, which is why a timeout or a not-found answer does not "
             "become a failure."
         ),
+        next_step=(
+            "This scenario has no scheduled notifications, so Run to end stays "
+            "disabled. Set Query tick to 3 and press Reconcile."
+        ),
     ),
     Step(
         slug="conflict",
@@ -77,6 +84,11 @@ GUIDED_STEPS: tuple[Step, ...] = (
             "Reconciling does not resolve this one. The lookup adds the second claim, "
             "and the refund stays under review because the evidence disagrees and "
             "recency is not proof."
+        ),
+        next_step="First press Run to end to apply the failure notification.",
+        next_step_after=(
+            "The failure is recorded. Set Query tick to 4 and press Reconcile to add "
+            "the provider's later success, which keeps the refund under review."
         ),
     ),
 )

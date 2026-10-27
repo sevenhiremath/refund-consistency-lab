@@ -75,9 +75,10 @@
       No merchant payment is processed and no live provider is contacted.
     </p>
     <p class="note">
-      A lookup is not part of normal duplicate handling. Duplicate deliveries are
-      settled by the event id alone. The lookup exists to supply information that a
-      dropped notification never carried.
+      A lookup is not part of normal duplicate handling. Repeated deliveries of the
+      same matching event count once, and conflicting claims about one event keep both
+      as evidence. The lookup exists to supply information that a dropped notification
+      never carried.
     </p>
   </section>
 {% endblock %}

@@ -1,4 +1,12 @@
 {% extends "base.html" %}
+{% macro reason_text(row) -%}
+{%- if row.reasons -%}{{ row.reasons | join(", ") | replace("_", " ") }}
+{%- elif row.protected_status == "pending" -%}awaiting provider evidence
+{%- elif row.protected_status == "succeeded" -%}provider confirmed the refund
+{%- elif row.protected_status == "failed" -%}provider reported the refund failed
+{%- else -%}under review
+{%- endif -%}
+{% endmacro %}
 {% macro amount(value, tone) -%}
 <span class="value{% if value > 0 %} {{ tone }}{% endif %}">{{ value | paise }}</span>
 {%- endmacro %}
@@ -58,23 +66,31 @@
 
     <p class="reason" data-testid="reason">
       {% if refunds | length == 1 %}
-        <b>Reason</b> ·
-        {% if primary.reasons %}
-          {{ primary.reasons | join(", ") | replace("_", " ") }}
-        {% else %}
-          settled by the notifications received
-        {% endif %}
+        <b>Reason</b> · {{ reason_text(primary) }}
       {% else %}
         <b>Reason</b> · each refund is decided from its own evidence
       {% endif %}
     </p>
 
-    {% if not body.actions %}
-      <p class="hint" data-testid="empty-hint">
-        Nothing delivered yet. Run to end applies the scheduled notifications.
+    {% if guided %}
+      {% if not body.actions %}
+        <p class="hint" data-testid="next-step">{{ guided.next_step }}</p>
+      {% elif guided.next_step_after and primary.protected_status in ("failed", "pending") %}
+        <p class="hint" data-testid="next-step">{{ guided.next_step_after }}</p>
+      {% endif %}
+    {% elif not body.actions %}
+      <p class="hint" data-testid="next-step">
+        {% if body.inputs.scheduled_deliveries == 0 %}
+          This scenario has no scheduled notifications, so there is nothing to run.
+          Use Reconcile with a tick at or after the event to ask the simulated
+          provider what it knows.
+        {% else %}
+          Nothing delivered yet. Press Run to end to apply the scheduled
+          notifications.
+        {% endif %}
       </p>
     {% elif finished and pending_refunds %}
-      <p class="hint">
+      <p class="hint" data-testid="next-step">
         Delivery is complete and the outcome is unknown. Reconcile asks the simulated
         provider.
       </p>
@@ -178,13 +194,7 @@
                 <td><span class="chip {{ row.protected_status }}">{{ row.protected_status }}</span></td>
                 <td class="num">{{ row.protected_confirmed_paise | paise }}</td>
                 <td class="num">{{ row.protected_review_paise | paise }}</td>
-                <td class="muted">
-                  {% if row.reasons %}
-                    {{ row.reasons | join(", ") | replace("_", " ") }}
-                  {% else %}
-                    settled by the notifications received
-                  {% endif %}
-                </td>
+                <td class="muted">{{ reason_text(row) }}</td>
               </tr>
             {% endfor %}
           </tbody>
@@ -238,8 +248,10 @@
         <p>{{ guided.watch }}</p>
         <p class="muted">{{ guided.side_note }}</p>
         <p class="muted small">
-          Duplicate deliveries are settled by the provider event id alone. A lookup is
-          only for information a missing notification never carried.
+          Repeated deliveries of the same matching event count once. If two claims
+          about one event disagree, both are kept as evidence and the refund stays
+          under review. A lookup is only for information a missing notification never
+          carried.
         </p>
       </div>
     </details>
