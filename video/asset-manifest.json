@@ -72,6 +72,18 @@
       "audio": "aac (silent; voice pending)"
     },
     "backend_changed": false,
-    "fresh_test_run": false
+    "fresh_test_run": false,
+    "assembly": {
+      "file": "out/hisaab-assembly.mp4",
+      "backup": "out/hisaab-backup-assembly.mp4",
+      "duration_seconds": 117.056,
+      "width": 1920,
+      "height": 1080,
+      "fps": 30,
+      "video": "h264",
+      "audio": "aac, 48kHz stereo; silent pending voice",
+      "decode_check": "ffmpeg full-file decode: no errors",
+      "visual_review": "sampled opening, architecture, amounts, conflict, placeholders, test and commit frames; narration and synchronized captions pending"
+    }
   }
 }
